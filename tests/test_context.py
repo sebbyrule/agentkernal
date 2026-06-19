@@ -4,8 +4,14 @@ end-to-end loop keeps running across a compaction."""
 
 from __future__ import annotations
 
-from agentkernel.context import ContextManager, estimate_tokens, structural_summary
+from agentkernel.context import (
+    ContextManager,
+    ModelSummarizer,
+    estimate_tokens,
+    structural_summary,
+)
 from agentkernel.context.truncate import truncate_text
+from agentkernel.providers import ProviderError
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import Message, ToolCall, ToolResult
 
@@ -92,6 +98,46 @@ def test_estimate_tokens_counts_all_parts():
         tool_calls=[ToolCall("c1", "bash", {"command": "echo hi"})],
     )
     assert estimate_tokens(m) >= 1
+
+
+def test_model_summarizer_uses_model_output():
+    provider = FakeProvider([text_response("CONCISE MODEL SUMMARY")])
+    summarize = ModelSummarizer(provider)
+    out = summarize([Message(role="user", content="a long earlier exchange")])
+    assert out == "CONCISE MODEL SUMMARY"
+    # The summarizer calls the model with no tools (it must not loop on tools).
+    assert provider.tool_args[0] == []
+
+
+def test_model_summarizer_falls_back_on_provider_error():
+    class _Boom(FakeProvider):
+        def complete(self, *a, **k):
+            raise ProviderError("summarizer model unreachable")
+
+    summarize = ModelSummarizer(_Boom([]))
+    msgs = [
+        Message(role="assistant", tool_calls=[ToolCall("c1", "read_file", {"path": "x.py"})]),
+        Message(role="tool", tool_results=[ToolResult("c1", "data")]),
+    ]
+    out = summarize(msgs)
+    # Best-effort: a model failure must degrade to the structural summary,
+    # never raise (compaction can't be allowed to break the loop).
+    assert "read_file" in out and "x.py" in out
+
+
+def test_model_summarizer_falls_back_on_empty_output():
+    summarize = ModelSummarizer(FakeProvider([text_response("   ")]))
+    out = summarize([Message(role="user", content="hi")])
+    assert out  # empty model reply -> structural fallback, never empty
+
+
+def test_compaction_uses_injected_summarizer():
+    provider = FakeProvider([text_response("MODEL-WRITTEN RECAP")])
+    cm = ContextManager(budget=50, keep_recent_turns=1, summarizer=ModelSummarizer(provider))
+    for i in range(4):
+        cm.add(Message(role="user", content="x" * 200 + f"#{i}"))
+    window = cm.window()
+    assert window[0].content == "Earlier in this session: MODEL-WRITTEN RECAP"
 
 
 def test_truncate_marks_removed_content():

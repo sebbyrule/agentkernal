@@ -11,10 +11,12 @@ from __future__ import annotations
 import argparse
 from typing import Callable
 
+from dataclasses import replace
+
 from agentkernel.agent import Agent
 from agentkernel.approval import CliApprover, LocalSandbox
 from agentkernel.config import Config
-from agentkernel.context import ContextManager
+from agentkernel.context import ContextManager, ModelSummarizer
 from agentkernel.providers import ProviderError, make_provider
 from agentkernel.telemetry import JsonlTelemetry
 from agentkernel.tools import ToolRegistry
@@ -39,7 +41,18 @@ def build_runtime(config: Config, *, verbose: bool = False) -> tuple[Agent, Json
     ):
         registry.register(spec)
     budget = provider.context_window - config.output_reserve
-    context = ContextManager(budget=budget, keep_recent_turns=config.keep_recent_turns)
+    # Use a cheap model for compaction summaries when one is configured;
+    # otherwise the structural fallback is used.
+    summarizer = None
+    if config.summarizer_model:
+        summarizer = ModelSummarizer(
+            make_provider(replace(config, model=config.summarizer_model))
+        )
+    context = ContextManager(
+        budget=budget,
+        keep_recent_turns=config.keep_recent_turns,
+        summarizer=summarizer,
+    )
     approver = CliApprover(config.approval_policy, allowlist=config.approval_allowlist)
     telemetry = JsonlTelemetry(config.log_dir, config.model, verbose=verbose)
     agent = Agent(provider, registry, context, approver, telemetry, config)

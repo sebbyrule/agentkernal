@@ -3,6 +3,7 @@
 from agentkernel.context.manager import (
     CompactionEvent,
     ContextManager,
+    ModelSummarizer,
     estimate_tokens,
     structural_summary,
 )
@@ -10,6 +11,7 @@ from agentkernel.context.manager import (
 __all__ = [
     "ContextManager",
     "CompactionEvent",
+    "ModelSummarizer",
     "estimate_tokens",
     "structural_summary",
 ]

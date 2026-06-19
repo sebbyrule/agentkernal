@@ -15,10 +15,13 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
-from agentkernel.context.truncate import CHARS_PER_TOKEN
+from agentkernel.context.truncate import CHARS_PER_TOKEN, truncate_text
 from agentkernel.types import Message
+
+if TYPE_CHECKING:
+    from agentkernel.providers import Provider
 
 # A summarizer turns a list of (old) messages into one summary string. The
 # default is the deterministic structural fallback below; a model-based
@@ -66,6 +69,55 @@ def structural_summary(messages: list[Message]) -> str:
     return "; ".join(parts) + "."
 
 
+def _render_transcript(messages: list[Message]) -> str:
+    """A compact, readable transcript of messages for the summarizer prompt."""
+    lines: list[str] = []
+    for m in messages:
+        if m.content and m.role in ("user", "assistant"):
+            lines.append(f"{m.role}: {m.content}")
+        for tc in m.tool_calls:
+            lines.append(f"assistant called {tc.name}({json.dumps(tc.arguments)})")
+        for r in m.tool_results:
+            lines.append(f"tool[{'error' if r.is_error else 'ok'}]: {r.content}")
+    return "\n".join(lines)
+
+
+class ModelSummarizer:
+    """Summarize old turns with a (cheap) model call (design §9.2).
+
+    Wired when ``config.summarizer_model`` is set. Summarization is best-effort:
+    any provider failure falls back to the deterministic ``structural_summary``
+    so compaction — and therefore the loop — can never crash on it.
+    """
+
+    def __init__(self, provider: "Provider", *, max_tokens: int = 512) -> None:
+        self._provider = provider
+        self._max_tokens = max_tokens
+
+    def __call__(self, messages: list[Message]) -> str:
+        # Bound the transcript so it fits the summarizer's own context.
+        transcript = truncate_text(_render_transcript(messages), 4000)
+        prompt = Message(
+            role="user",
+            content=(
+                "Summarize the earlier conversation below so it can be dropped from "
+                "context without losing continuity. Be concise; preserve key facts, "
+                "decisions, tool results, and file paths.\n\n" + transcript
+            ),
+        )
+        try:
+            resp = self._provider.complete(
+                [prompt],
+                [],
+                max_tokens=self._max_tokens,
+                temperature=0.0,
+                system="You are a precise note-taker producing a context summary.",
+            )
+        except Exception:  # noqa: BLE001 - best-effort; never break the loop
+            return structural_summary(messages)
+        return resp.message.content.strip() or structural_summary(messages)
+
+
 class ContextManager:
     def __init__(
         self,
@@ -80,8 +132,9 @@ class ContextManager:
         self._messages: list[Message] = []
         self._budget = budget
         self._keep_recent_turns = keep_recent_turns
-        # TODO(owner): a model-based summarizer (config.summarizer_model) can be
-        # injected here; until then the deterministic structural fallback is used.
+        # A model-based summarizer (ModelSummarizer, wired from
+        # config.summarizer_model) can be injected; otherwise the deterministic
+        # structural fallback is used.
         self._summarize: Summarizer = summarizer or structural_summary
         self._estimate = estimator
         self._pending_compaction: CompactionEvent | None = None
