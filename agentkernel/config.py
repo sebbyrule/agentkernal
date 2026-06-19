@@ -35,6 +35,10 @@ class Config:
     log_dir: str = ".agentkernel/traces"
     max_cost_usd: float | None = None  # stop if cumulative cost exceeds this
     max_input_tokens_per_run: int | None = None  # stop if input tokens exceed this
+    profile: str | None = None  # active profile name (Phase 5)
+    profile_dir: str = "profiles"
+    memory_store: str | None = None  # "file" | "memory" | None (Phase 3)
+    memory_dir: str | None = None
 
     @classmethod
     def load(

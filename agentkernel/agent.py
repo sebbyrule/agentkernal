@@ -9,6 +9,7 @@ to its call id (design §8), until the model produces a final answer.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from agentkernel.budget import BudgetGuard
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from agentkernel.approval import Approver
     from agentkernel.config import Config
     from agentkernel.context import ContextManager
+    from agentkernel.memory import MemoryStore
     from agentkernel.providers import Provider
     from agentkernel.telemetry import Telemetry
     from agentkernel.tools import ToolRegistry, ToolSpec
@@ -39,6 +41,7 @@ class Agent:
         telemetry: Telemetry,
         config: Config,
         budget: BudgetGuard | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -47,6 +50,7 @@ class Agent:
         self.telemetry = telemetry
         self.config = config
         self.budget = budget
+        self.memory = memory
 
     def run(self, user_input: str, *, profile: Any | None = None) -> str:
         """Drive the loop until a final answer or the max-iteration guard.
@@ -54,6 +58,14 @@ class Agent:
         ``profile`` (design §13, Phase 5) is accepted but, in the kernel, only
         ``tool_filter`` / ``system_prompt`` are honored if trivially present.
         """
+        session_id = getattr(self.telemetry, "session_id", str(uuid.uuid4()))
+
+        # Pre-run memory load (Phase 3). Only load when context is empty so a
+        # persistent REPL session does not replay the same stored turns twice.
+        if self.memory is not None and not self.context.messages():
+            for message in self.memory.load(session_id):
+                self.context.add(message)
+
         self.context.add(Message(role="user", content=user_input))
 
         # Assemble the cacheable prefix ONCE per run and reuse the same objects
@@ -85,11 +97,14 @@ class Agent:
                     # return the final answer (if we have one) or stop early.
                     self.telemetry.record_turn(iteration, resp, compaction=compaction)
                     if not resp.message.tool_calls:
+                        self._persist_memory(session_id)
                         return resp.message.content
+                    self._persist_memory(session_id)
                     return f"Stopped: budget exceeded ({reason})."
 
             if not resp.message.tool_calls:
                 self.telemetry.record_turn(iteration, resp, compaction=compaction)
+                self._persist_memory(session_id)
                 return resp.message.content  # final answer
 
             results: list[ToolResult] = []
@@ -127,7 +142,14 @@ class Agent:
             # The adapter fans this out to the provider's shape (design §8.1).
             self.context.add(Message(role="tool", tool_results=results))
 
+        self._persist_memory(session_id)
         return "Stopped: reached max iterations without a final answer."
+
+    # --- memory helper ------------------------------------------------------
+
+    def _persist_memory(self, session_id: str) -> None:
+        if self.memory is not None:
+            self.memory.save(session_id, self.context.messages())
 
     # --- profile seams (design §13, Phase 5) -------------------------------
 
@@ -137,7 +159,7 @@ class Agent:
         order and not re-sorted."""
         specs = self.registry.specs()
         tool_filter = getattr(profile, "tool_filter", None)
-        if tool_filter:
+        if tool_filter is not None:
             allowed = set(tool_filter)
             specs = [s for s in specs if s.name in allowed]
         return specs

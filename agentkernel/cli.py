@@ -20,7 +20,6 @@ import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 from agentkernel.agent import Agent
 from agentkernel.approval import CliApprover, LocalSandbox
@@ -29,7 +28,9 @@ from agentkernel.config import Config
 from agentkernel.context import ContextManager, ModelSummarizer
 from agentkernel.mcp import MCPClient, MCPError, load_mcp_servers, register_mcp_servers
 from agentkernel.mcp.config import MCPServerConfig
+from agentkernel.memory import MemoryStore, make_memory_store
 from agentkernel.progress import ProgressTelemetry
+from agentkernel.profiles import Profile, load_profile
 from agentkernel.providers import ProviderError, make_provider
 from agentkernel.telemetry import JsonlTelemetry, NullTelemetry
 from agentkernel.tools import ToolRegistry
@@ -37,7 +38,7 @@ from agentkernel.tools.builtin import default_tools
 
 _BANNER = (
     "agentkernel REPL - type your message and press enter. "
-    "Commands: /exit, /clear, /system, /tools, /trace, /cost."
+    "Commands: /exit, /clear, /system, /profile, /tools, /trace, /cost."
 )
 _PROMPT = "> "
 _EXIT_WORDS = {"exit", "quit", ":q"}
@@ -49,6 +50,7 @@ def build_runtime(
     mcp_servers: list[MCPServerConfig] | None = None,
     verbose: bool = False,
     budget: BudgetGuard | None = None,
+    memory: MemoryStore | None = None,
 ) -> tuple[Agent, JsonlTelemetry, list[MCPClient]]:
     """Construct an Agent, its telemetry, and any MCP clients from config.
 
@@ -77,14 +79,24 @@ def build_runtime(
     )
     approver = CliApprover(config.approval_policy, allowlist=config.approval_allowlist)
     telemetry = JsonlTelemetry(config.log_dir, config.model, verbose=verbose)
-    agent = Agent(provider, registry, context, approver, telemetry, config, budget=budget)
+    agent = Agent(
+        provider,
+        registry,
+        context,
+        approver,
+        telemetry,
+        config,
+        budget=budget,
+        memory=memory,
+    )
     return agent, telemetry, mcp_clients
 
 
 def _handle_slash(
     line: str,
     agent: Agent,
-    profile: SimpleNamespace,
+    profile: Profile,
+    config: Config,
     output_fn: Callable[[str], None],
 ) -> bool:
     """Process a REPL slash command. Returns True if the line was handled."""
@@ -107,6 +119,25 @@ def _handle_slash(
         else:
             profile.system_prompt = arg
             output_fn(f"[system prompt set: {arg[:60]!r}]")
+        return True
+
+    if cmd == "profile":
+        if not arg:
+            output_fn(f"[active profile: {profile.name}]")
+            return True
+        loaded = load_profile(
+            arg,
+            search_dirs=[Path(config.profile_dir)] if config.profile_dir else [],
+        )
+        if loaded is None:
+            output_fn(f"[profile not found: {arg}]")
+            return True
+        profile.name = loaded.name
+        profile.system_prompt = loaded.system_prompt
+        profile.tool_filter = loaded.tool_filter
+        profile.model_override = loaded.model_override
+        profile.rubric = loaded.rubric
+        output_fn(f"[profile loaded: {loaded.name}]")
         return True
 
     if cmd == "tools":
@@ -144,12 +175,13 @@ def _handle_slash(
 def repl(
     agent: Agent,
     *,
+    config: Config | None = None,
     input_fn: Callable[[str], str] = input,
     output_fn: Callable[[str], None] = print,
 ) -> int:
     """Read-eval-print chat over one Agent (context persists across messages)."""
     output_fn(_BANNER)
-    profile: SimpleNamespace = SimpleNamespace(system_prompt=None)
+    profile = Profile(name="default")
     while True:
         try:
             line = input_fn(_PROMPT).strip()
@@ -161,7 +193,7 @@ def repl(
         if line.lower() in _EXIT_WORDS:
             break
         if line.startswith("/"):
-            if not _handle_slash(line, agent, profile, output_fn):
+            if not _handle_slash(line, agent, profile, config or agent.config, output_fn):
                 break
             continue
         try:
@@ -177,11 +209,12 @@ def run_once(
     agent: Agent,
     prompt: str,
     *,
+    profile: Profile | None = None,
     output_fn: Callable[[str], None] = print,
 ) -> int:
     """Execute a single non-interactive turn and print the final answer."""
     try:
-        answer = agent.run(prompt)
+        answer = agent.run(prompt, profile=profile)
     except ProviderError as exc:
         output_fn(f"[provider error] {exc}")
         return 1
@@ -194,6 +227,15 @@ def _read_prompt_file(path: str) -> str:
         return Path(path).read_text(encoding="utf-8")
     except OSError as exc:
         raise SystemExit(f"could not read prompt file: {exc}")
+
+
+def _active_profile(config: Config, args: argparse.Namespace) -> Profile | None:
+    name = args.profile or config.profile
+    if not name:
+        return None
+    profile_dir = Path(config.profile_dir) if config.profile_dir else None
+    search_dirs = [profile_dir] if profile_dir else None
+    return load_profile(name, search_dirs=search_dirs)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -210,6 +252,15 @@ def main(argv: list[str] | None = None) -> int:
         "--no-progress",
         action="store_true",
         help="disable per-turn progress lines in run/repl modes",
+    )
+    parser.add_argument(
+        "--profile",
+        help="active profile name (overrides config.profile)",
+    )
+    parser.add_argument(
+        "--memory",
+        choices=("file", "memory"),
+        help="enable a built-in memory store (overrides config.memory_store)",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("repl", help="interactive REPL")
@@ -230,16 +281,24 @@ def main(argv: list[str] | None = None) -> int:
         max_input_tokens=config.max_input_tokens_per_run,
         model=config.model,
     )
+
+    memory_kind = args.memory or config.memory_store
+    memory_dir = config.memory_dir or str(Path(config.log_dir).parent / "memory")
+    memory = make_memory_store(memory_kind, memory_dir)
+
     try:
         agent, telemetry, mcp_clients = build_runtime(
             config,
             mcp_servers=mcp_servers,
             verbose=args.verbose_trace,
             budget=budget,
+            memory=memory,
         )
     except (ProviderError, MCPError) as exc:
         print(f"[startup error] {exc}")
         return 1
+
+    profile = _active_profile(config, args)
 
     if not args.no_progress:
         telemetry = ProgressTelemetry(telemetry, output_fn=print)
@@ -247,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         print(f"[session trace: {telemetry.path}]")
+        if memory_kind:
+            print(f"[memory: {memory_kind} @ {memory_dir}]")
         if mcp_clients:
             print(f"[connected MCP servers: {', '.join(s.name for s in mcp_servers)}]")
 
@@ -254,8 +315,8 @@ def main(argv: list[str] | None = None) -> int:
             prompt = args.prompt
             if args.file:
                 prompt = _read_prompt_file(args.file)
-            return run_once(agent, prompt or "")
-        return repl(agent)
+            return run_once(agent, prompt or "", profile=profile)
+        return repl(agent, config=config)
     finally:
         telemetry.close()
         for client in mcp_clients:

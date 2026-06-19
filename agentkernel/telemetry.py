@@ -96,6 +96,9 @@ class Telemetry(Protocol):
 class NullTelemetry:
     """Records nothing. Used where tracing is not configured (and by tests)."""
 
+    def __init__(self, session_id: str | None = None) -> None:
+        self.session_id = session_id or str(uuid.uuid4())
+
     @property
     def model(self) -> str:
         return "null"

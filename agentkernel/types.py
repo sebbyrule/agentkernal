@@ -22,6 +22,13 @@ class ToolCall:
     name: str
     arguments: dict[str, Any]  # already parsed from JSON by the adapter
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "name": self.name, "arguments": self.arguments}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ToolCall:
+        return cls(id=data["id"], name=data["name"], arguments=data.get("arguments", {}))
+
 
 @dataclass
 class ToolResult:
@@ -36,6 +43,23 @@ class ToolResult:
     content: str  # text shown to the model
     is_error: bool = False
     data: dict | None = None  # structured payload for kernel use; not model-visible
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "call_id": self.call_id,
+            "content": self.content,
+            "is_error": self.is_error,
+            "data": self.data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ToolResult:
+        return cls(
+            call_id=data["call_id"],
+            content=data.get("content", ""),
+            is_error=data.get("is_error", False),
+            data=data.get("data"),
+        )
 
 
 @dataclass
@@ -54,6 +78,33 @@ class Message:
     # Bookkeeping:
     cacheable: bool = False  # marks a stable prefix boundary (design §9.3)
     token_estimate: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict (e.g., for persistence in memory stores)."""
+        return {
+            "role": self.role,
+            "content": self.content,
+            "tool_calls": [tc.to_dict() for tc in self.tool_calls],
+            "tool_results": [tr.to_dict() for tr in self.tool_results],
+            "cacheable": self.cacheable,
+            "token_estimate": self.token_estimate,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Message:
+        """Reconstruct a Message from `to_dict()` output."""
+        return cls(
+            role=data["role"],
+            content=data.get("content", ""),
+            tool_calls=[ToolCall.from_dict(tc) for tc in data.get("tool_calls", [])],
+            tool_results=[ToolResult.from_dict(tr) for tr in data.get("tool_results", [])],
+            cacheable=data.get("cacheable", False),
+            token_estimate=data.get("token_estimate"),
+        )
+
+    def __hash__(self) -> int:
+        # Messages are mutable, but a stable hash is useful for in-memory store keys.
+        return id(self)
 
 
 @dataclass
