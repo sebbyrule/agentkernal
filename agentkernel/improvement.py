@@ -59,11 +59,12 @@ def _summarize_trace(records: list[dict[str, Any]]) -> str:
         lines.append(f"stop_reason: {record.get('stop_reason', 'unknown')}")
         for call in record.get("tool_calls", []):
             lines.append(f"tool: {call.get('name')} approved={call.get('approved')} error={call.get('is_error')}")
-        assistant = record.get("assistant_message", "")
-        if assistant:
-            # Truncate long assistant messages to keep prompts small.
-            text = assistant if len(assistant) < 500 else assistant[:500] + "..."
-            lines.append(f"assistant: {text}")
+        # Note: the redacted JSONL trace (design §12) does not carry assistant
+        # text or raw tool args, so reflection works from the structural signal
+        # — tools used, errors, stop reasons, and token/cost figures.
+        cost = record.get("estimated_cost_usd")
+        if cost is not None:
+            lines.append(f"cost_usd: {cost}")
     return "\n".join(lines)
 
 

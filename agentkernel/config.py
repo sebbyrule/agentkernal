@@ -41,6 +41,7 @@ class Config:
     memory_dir: str | None = None
     skills_dir: str = "skills"  # Phase 4
     skills: list[str] = field(default_factory=list)  # active skill names (Phase 4)
+    enable_graph: bool = False  # register graph_add/graph_query tools (Phase 6)
     graph_path: str = ".agentkernel/graph.jsonl"  # Phase 6
     improvements_dir: str = ".agentkernel/improvements"  # Phase 7
 
@@ -77,6 +78,8 @@ _FIELD_TYPES: dict[str, Any] = {f.name: f.type for f in fields(Config)}
 def _coerce(raw: str, typ: Any) -> Any:
     """Coerce an environment string to the field's declared type."""
     # Field types are stringified annotations under ``from __future__ import``.
+    if typ == "bool":
+        return raw.strip().lower() in ("1", "true", "yes", "on")
     if typ == "int":
         return int(raw)
     if typ == "float":

@@ -28,17 +28,19 @@ from agentkernel.config import Config
 from agentkernel.context import ContextManager, ModelSummarizer
 from agentkernel.mcp import MCPClient, MCPError, load_mcp_servers, register_mcp_servers
 from agentkernel.mcp.config import MCPServerConfig
+from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
 from agentkernel.memory import MemoryStore, make_memory_store
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.providers import ProviderError, make_provider
+from agentkernel.skills import DirectorySkillStore
 from agentkernel.telemetry import JsonlTelemetry, NullTelemetry
 from agentkernel.tools import ToolRegistry
 from agentkernel.tools.builtin import default_tools
 
 _BANNER = (
-    "agentkernel REPL - type your message and press enter. "
-    "Commands: /exit, /clear, /system, /profile, /tools, /trace, /cost."
+    "agentkernel REPL - type your message and press enter. Commands: /exit, "
+    "/clear, /system, /profile, /skills, /skill, /tools, /trace, /cost."
 )
 _PROMPT = "> "
 _EXIT_WORDS = {"exit", "quit", ":q"}
@@ -66,6 +68,16 @@ def build_runtime(
     ):
         registry.register(spec)
     mcp_clients = register_mcp_servers(registry, list(mcp_servers or []))
+
+    # Phase 6: expose the knowledge graph as ordinary tools when enabled.
+    if config.enable_graph:
+        for spec in make_graph_tools(KnowledgeGraph(config.graph_path)):
+            registry.register(spec)
+
+    # Phase 4: skills contribute system-prompt text via the context source.
+    # The store is harmless when the directory is absent or no skills are active.
+    context_source = DirectorySkillStore(config.skills_dir, active_skills=config.skills)
+
     budget_for_context = provider.context_window - config.output_reserve
     summarizer = None
     if config.summarizer_model:
@@ -88,6 +100,7 @@ def build_runtime(
         config,
         budget=budget,
         memory=memory,
+        context_source=context_source,
     )
     return agent, telemetry, mcp_clients
 
@@ -138,6 +151,29 @@ def _handle_slash(
         profile.model_override = loaded.model_override
         profile.rubric = loaded.rubric
         output_fn(f"[profile loaded: {loaded.name}]")
+        return True
+
+    if cmd == "skills":
+        source = agent.context_source
+        available = source.available_skills() if source is not None else []
+        if not available:
+            output_fn("(no skills found)")
+            return True
+        active = getattr(source, "active_skills", set())
+        for name in available:
+            output_fn(f"  [{'*' if name in active else ' '}] {name}")
+        return True
+
+    if cmd == "skill":
+        source = agent.context_source
+        if source is None or not hasattr(source, "activate"):
+            output_fn("(no skill store)")
+            return True
+        if not arg:
+            output_fn("usage: /skill <name>")
+            return True
+        state = source.activate(arg)
+        output_fn(f"[skill {arg}: {'on' if state else 'off'}]")
         return True
 
     if cmd == "tools":
@@ -222,6 +258,30 @@ def run_once(
     return 0
 
 
+def run_improve(
+    config: Config,
+    *,
+    trace: str | None = None,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Reflect on a session trace and write an improvement note (Phase 7)."""
+    from agentkernel.improvement import SelfImprover
+
+    improver = SelfImprover(make_provider(config), config.improvements_dir)
+    trace_path = trace or improver.latest_trace(config.log_dir)
+    if trace_path is None:
+        output_fn(f"[no trace found in {config.log_dir}]")
+        return 1
+    try:
+        improvement = improver.analyze_trace(trace_path)
+    except ProviderError as exc:
+        output_fn(f"[provider error] {exc}")
+        return 1
+    output_fn(improvement.suggestion)
+    output_fn(f"[improvement written to {improvement.output_path}]")
+    return 0
+
+
 def _read_prompt_file(path: str) -> str:
     try:
         return Path(path).read_text(encoding="utf-8")
@@ -267,6 +327,12 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = subparsers.add_parser("run", help="single non-interactive run")
     run_parser.add_argument("prompt", nargs="?", help="text prompt")
     run_parser.add_argument("--file", help="path to a file containing the prompt")
+    improve_parser = subparsers.add_parser(
+        "improve", help="reflect on a session trace and write an improvement note"
+    )
+    improve_parser.add_argument(
+        "--trace", help="trace file to analyze (default: latest in log_dir)"
+    )
 
     args = parser.parse_args(argv)
     command = getattr(args, "command", None) or "repl"
@@ -275,6 +341,12 @@ def main(argv: list[str] | None = None) -> int:
         run_parser.error("the following arguments are required: prompt or --file")
 
     config = Config.load(args.config)
+
+    # 'improve' is a self-contained tool: it needs only a provider, not the full
+    # runtime (no MCP servers, sandbox, or session trace file).
+    if command == "improve":
+        return run_improve(config, trace=getattr(args, "trace", None))
+
     mcp_servers = load_mcp_servers(args.config)
     budget = BudgetGuard(
         max_cost_usd=config.max_cost_usd,

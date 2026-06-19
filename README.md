@@ -40,20 +40,35 @@ export OPENAI_API_KEY=...        # for provider = "openai"
 ## Quick start
 
 ```bash
-uv run agentkernel              # start the interactive REPL
-uv run agentkernel --help       # options
-uv run pytest                   # full test suite, offline
+uv run agentkernel                      # interactive REPL (default)
+uv run agentkernel run "your prompt"    # single non-interactive run, prints the answer
+uv run agentkernel run --file task.md   # single run from a prompt file
+uv run agentkernel improve              # reflect on the latest trace, write a rule note
+uv run agentkernel --help               # options
+uv run pytest                           # full test suite, offline
 ```
 
-The REPL keeps conversational context across messages and writes a per-session JSONL trace:
+The REPL keeps conversational context across messages, prints a one-line progress
+status per turn, and writes a per-session JSONL trace. It supports slash commands:
 
 ```
 $ uv run agentkernel
 [session trace: .agentkernel/traces/<session-id>.jsonl]
-agentkernel REPL - type your message and press enter. Commands: 'exit' / 'quit' to leave.
+agentkernel REPL - type your message and press enter. Commands: /exit, /clear,
+/system, /profile, /skills, /skill, /tools, /trace, /cost.
 > summarize the files in this directory
-...
 ```
+
+| Command | Effect |
+|---|---|
+| `/clear` | reset the conversation context |
+| `/system [text]` | set (or clear) the system prompt for following turns |
+| `/profile [name]` | show, or load, a profile from `profile_dir` |
+| `/skills` | list discovered skills (`*` = active) |
+| `/skill <name>` | toggle a skill on/off |
+| `/tools` | list registered tools (builtin + MCP + graph) |
+| `/trace` / `/cost` | show the trace path / cumulative session cost |
+| `/exit` | leave |
 
 ### Using the kernel as a library
 
@@ -62,14 +77,16 @@ from agentkernel.config import Config
 from agentkernel.cli import build_runtime
 
 config = Config(provider="anthropic", model="claude-sonnet-4-6")
-agent, telemetry = build_runtime(config)
+agent, telemetry, mcp_clients = build_runtime(config)
 try:
     print(agent.run("List the Python files here and count the lines in each."))
 finally:
     telemetry.close()
+    for client in mcp_clients:
+        client.close()
 ```
 
-`build_runtime` wires a provider, the builtin tools inside a `LocalSandbox`, a `CliApprover`, and JSONL telemetry into an `Agent`. You can also assemble these yourself — every collaborator is injected, nothing is global.
+`build_runtime` wires a provider, the builtin tools inside a `LocalSandbox`, a `CliApprover`, JSONL telemetry, and any configured MCP servers / skills / knowledge-graph tools into an `Agent`. You can also assemble these yourself — every collaborator is injected, nothing is global.
 
 ---
 
@@ -94,6 +111,15 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |
 | `log_dir` | `.agentkernel/traces` | where session traces are written |
+| `max_cost_usd` | `None` | per-run cost ceiling; the run stops when exceeded |
+| `max_input_tokens_per_run` | `None` | per-run input-token ceiling |
+| `profile` / `profile_dir` | `None` / `profiles` | active profile name and where profiles are loaded from |
+| `memory_store` / `memory_dir` | `None` / `None` | `file` or `memory` store, and its directory |
+| `skills_dir` / `skills` | `skills` / `[]` | skill source directory and the initially-active skill names |
+| `enable_graph` / `graph_path` | `False` / `.agentkernel/graph.jsonl` | register `graph_add`/`graph_query` tools backed by this file |
+| `improvements_dir` | `.agentkernel/improvements` | where `improve` writes reflection notes |
+
+MCP servers are declared separately as `[[mcp_servers]]` tables (see [MCP](#mcp-mcp) below).
 
 ---
 
@@ -180,6 +206,17 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
 
 On Windows, point `command` at the actual executable (e.g. `npx.cmd`) since the client launches the process directly without a shell.
 
+### Higher-level capabilities (built on the kernel)
+
+These are implemented on top of the kernel using the three primitives — a tool, a context injection, or a run parameter — never by changing the loop:
+
+- **Profiles** ([`profiles.py`](agentkernel/profiles.py)) — a run parameter `(system_prompt, tool_filter, model_override, rubric)` loaded from `profiles/<name>.toml`. The loop honors `system_prompt` and `tool_filter`.
+- **Skills** ([`skills.py`](agentkernel/skills.py)) — markdown/TOML system-prompt fragments discovered from `skills_dir`; active skills contribute to the (still stable, assembled-once) prefix via a `ContextSource`. Toggle them live with `/skill`.
+- **Memory** ([`memory.py`](agentkernel/memory.py)) — a `MemoryStore` loaded before a run and saved after; ships in-memory and JSONL-file stores. Enable with `memory_store`.
+- **Knowledge graph** ([`knowledge.py`](agentkernel/knowledge.py)) — a file-backed triple store exposed purely as `graph_add`/`graph_query` tools (`enable_graph = true`). The kernel keeps no graph state.
+- **Self-improvement** ([`improvement.py`](agentkernel/improvement.py)) — `agentkernel improve` reads a session trace and asks the model for one concrete rule, written to `improvements_dir`. This is why telemetry exists from turn one.
+- **Budget guard** ([`budget.py`](agentkernel/budget.py)) — per-run cost/token ceilings (`max_cost_usd`, `max_input_tokens_per_run`) that stop a run cleanly.
+
 ---
 
 ## Project layout
@@ -195,7 +232,14 @@ agentkernel/
   context/              # accounting, compaction, shared truncation
   approval/             # Approver, Sandbox, policies
   mcp/                  # MCP stdio client; registers remote tools as ToolSpecs
-  cli.py                # REPL entry point
+  budget.py             # per-run cost/token guard
+  progress.py           # per-turn REPL status lines
+  profiles.py           # run-parameter profiles (Phase 5)
+  skills.py             # system-prompt fragments via ContextSource (Phase 4)
+  memory.py             # pre/post-run MemoryStore (Phase 3)
+  knowledge.py          # triple store exposed as tools (Phase 6)
+  improvement.py        # trace -> improvement rule (Phase 7)
+  cli.py                # REPL + run/improve entry points
 tests/                  # offline suite (FakeProvider-driven)
 ```
 
@@ -211,15 +255,19 @@ The suite is **fully offline** — a `FakeProvider` returns scripted responses, 
 
 ---
 
-## Extension seams
+## The seam principle
 
-The kernel deliberately leaves interfaces — not implementations — for later phases, so they plug in without reshaping the core:
+The kernel proves its design by adding every capability through one of three primitives — a tool, a context injection, or a run parameter — **without changing the loop or the registry**:
 
-- **MCP** *(implemented — see [`mcp/`](agentkernel/mcp))* — an MCP client registers each remote tool as a `ToolSpec`, with no loop or registry change. This is the proof that the tool seam is right.
-- **Skills / AGENTS.md** — a context source consulted when assembling the system prompt (must not disturb prefix stability).
-- **Profiles & evaluators** — `run()` already accepts a `profile` parameter.
-- **Memory** — pre-run load hook and post-run save hook around `run`.
-- **Sub-agents** — already enabled by the loop's re-entrancy.
+- **MCP** — an MCP client registers each remote tool as a `ToolSpec` (a tool).
+- **Knowledge graph** — `graph_add`/`graph_query` are ordinary registered tools.
+- **Skills** — a `ContextSource` contributes system-prompt text (a context injection).
+- **Memory** — pre-run load and post-run save hooks around `run` (context injection).
+- **Profiles** — `run()` accepts a `profile` parameter (a run parameter).
+- **Sub-agents** — enabled by the loop's re-entrancy; a tool handler can spawn a child `Agent`.
+- **Self-improvement** — reads the telemetry the kernel has emitted since turn one.
+
+Each lands at the edge. The loop in [`agent.py`](agentkernel/agent.py) still reads like the design's pseudocode.
 
 ---
 

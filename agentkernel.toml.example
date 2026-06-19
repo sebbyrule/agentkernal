@@ -18,6 +18,29 @@ working_dir = "."
 # summarizer_model = "claude-haiku-4-5-20251001"   # cheap model for compaction (M2)
 log_dir = ".agentkernel/traces"
 
+# Per-run guardrails (the run stops cleanly when a ceiling is exceeded).
+# max_cost_usd = 0.50
+# max_input_tokens_per_run = 200000
+
+# Profiles (Phase 5): a named run parameterization loaded from profile_dir.
+# profile = "reviewer"
+# profile_dir = "profiles"
+
+# Memory (Phase 3): persist/recall conversation across runs.
+# memory_store = "file"             # "file" | "memory"
+# memory_dir = ".agentkernel/memory"
+
+# Skills (Phase 4): system-prompt fragments discovered from skills_dir.
+# skills_dir = "skills"
+# skills = ["reviewer", "python"]   # initially-active skill names
+
+# Knowledge graph (Phase 6): exposes graph_add / graph_query tools.
+# enable_graph = true
+# graph_path = ".agentkernel/graph.jsonl"
+
+# Self-improvement (Phase 7): where `agentkernel improve` writes rule notes.
+# improvements_dir = ".agentkernel/improvements"
+
 # MCP servers (Phase 2). Each is launched over stdio; its tools register into
 # the same registry as the builtins. Read-only tools (readOnlyHint) skip the
 # approval gate; everything else is gated by default.
