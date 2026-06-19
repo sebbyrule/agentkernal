@@ -56,15 +56,18 @@ def test_graph_tools_absent_by_default(tmp_path):
 # --- skills (Phase 4) ------------------------------------------------------
 
 
-def test_build_runtime_injects_active_skill(tmp_path):
+def test_build_runtime_injects_skill_catalog_and_pin(tmp_path):
     skills = tmp_path / "skills"
     skills.mkdir()
     (skills / "terse.md").write_text("Answer in one sentence.")
     cfg = _cfg(tmp_path, skills_dir=str(skills), skills=["terse"])
     agent, telemetry, clients = build_runtime(cfg)
     try:
-        assert agent.context_source is not None
-        assert agent.context_source.system_additions() == ["Answer in one sentence."]
+        adds = agent.context_source.system_additions()
+        assert adds[0].startswith("# Available skills")  # catalog always present
+        assert any("Answer in one sentence." in a for a in adds)  # pinned body shown
+        # The use_skill tool is registered so bodies can also load on demand.
+        assert "use_skill" in {s.name for s in agent.registry.specs()}
     finally:
         _teardown(telemetry, clients)
 
@@ -79,8 +82,8 @@ def test_repl_skill_toggle_activates_system_addition(agent_builder, tmp_path):
         input_fn=_ScriptedInput(["/skill s", "go", "exit"]),
         output_fn=lambda _line: None,
     )
-    # Activating the skill made its text a system-prompt addition for the run.
-    assert provider.system_args[0] == "Be terse."
+    # Pinning the skill put its body into the run's system prompt (with catalog).
+    assert "Be terse." in provider.system_args[0]
 
 
 def test_repl_skills_lists_available(agent_builder, tmp_path):

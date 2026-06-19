@@ -33,7 +33,7 @@ from agentkernel.memory import MemoryStore, make_memory_store
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.providers import ProviderError, make_provider
-from agentkernel.skills import DirectorySkillStore
+from agentkernel.skills import DirectorySkillStore, make_skill_tool
 from agentkernel.subagent import make_spawn_tool
 from agentkernel.telemetry import JsonlTelemetry, NullTelemetry
 from agentkernel.tools import ToolRegistry
@@ -85,9 +85,12 @@ def build_runtime(
         for spec in make_graph_tools(KnowledgeGraph(config.graph_path)):
             registry.register(spec)
 
-    # Phase 4: skills contribute system-prompt text via the context source.
-    # The store is harmless when the directory is absent or no skills are active.
+    # Phase 4: skills contribute a progressive-disclosure catalog via the
+    # context source; the model loads a skill's full body on demand with the
+    # use_skill tool (registered only when skills exist).
     context_source = DirectorySkillStore(config.skills_dir, active_skills=config.skills)
+    if context_source.available_skills():
+        registry.register(make_skill_tool(context_source))
 
     budget_for_context = provider.context_window - config.output_reserve
     summarizer = None
@@ -376,6 +379,85 @@ def run_eval(
     return 0 if summary.passed == summary.total else 1
 
 
+def run_loop(
+    config: Config,
+    *,
+    loop_file: str | None = None,
+    skill: str | None = None,
+    max_iterations: int | None = None,
+    check: str | None = None,
+    streak: int | None = None,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Run a loop-engineering workflow until its stopping condition (Phase 4+).
+
+    Returns 0 if the loop succeeded (reached its success streak), else 1.
+    """
+    from agentkernel.loops import LoopRunner, load_loop, loop_from_skill
+
+    sandbox = make_sandbox(
+        config.sandbox, config.working_dir,
+        image=config.sandbox_image, network=config.sandbox_network,
+    )
+    base_agent, telemetry, mcp_clients = build_runtime(config, sandbox=sandbox)
+
+    if loop_file:
+        loop = load_loop(loop_file)
+        if max_iterations is not None:
+            loop.max_iterations = max_iterations
+        if check is not None:
+            loop.success_check = check
+        if streak is not None:
+            loop.success_streak = streak
+    elif skill:
+        loop = loop_from_skill(
+            base_agent.context_source, skill,
+            max_iterations=max_iterations or 5,
+            success_check=check,
+            success_streak=streak or 1,
+            cwd=config.working_dir,
+        )
+        if loop is None:
+            telemetry.close()
+            for c in mcp_clients:
+                c.close()
+            sandbox.close()
+            output_fn(f"[skill not found: {skill}]")
+            return 1
+    else:
+        telemetry.close()
+        for c in mcp_clients:
+            c.close()
+        sandbox.close()
+        output_fn("[loop requires --file or --skill]")
+        return 1
+
+    def agent_factory() -> Agent:
+        context = ContextManager(
+            budget=base_agent.provider.context_window - config.output_reserve,
+            keep_recent_turns=config.keep_recent_turns,
+        )
+        return Agent(
+            base_agent.provider, base_agent.registry, context,
+            AutoApprover(config.approval_policy), NullTelemetry(), config,
+            context_source=base_agent.context_source,
+        )
+
+    output_fn(f"[loop: {loop.name} — max {loop.max_iterations} iterations]")
+    runner = LoopRunner(agent_factory, sandbox=sandbox, output_fn=output_fn)
+    try:
+        result = runner.run(loop)
+    finally:
+        telemetry.close()
+        for c in mcp_clients:
+            c.close()
+        sandbox.close()
+
+    verdict = "SUCCEEDED" if result.succeeded else "stopped without success"
+    output_fn(f"{loop.name}: {verdict} after {result.count} iteration(s).")
+    return 0 if result.succeeded else 1
+
+
 def _read_prompt_file(path: str) -> str:
     try:
         return Path(path).read_text(encoding="utf-8")
@@ -434,6 +516,16 @@ def main(argv: list[str] | None = None) -> int:
     eval_parser.add_argument(
         "--judge-model", help="model to score answers (default: config.judge_model)"
     )
+    loop_parser = subparsers.add_parser(
+        "loop", help="run a repeatable workflow loop with a stopping condition"
+    )
+    loop_parser.add_argument("--file", help="path to a loop TOML file")
+    loop_parser.add_argument("--skill", help="use a skill's body as the loop prompt")
+    loop_parser.add_argument("--max-iterations", type=int, help="iteration cap")
+    loop_parser.add_argument("--check", help="success shell command (exit 0 = success)")
+    loop_parser.add_argument(
+        "--streak", type=int, help="consecutive successes required to stop"
+    )
 
     args = parser.parse_args(argv)
     command = getattr(args, "command", None) or "repl"
@@ -450,6 +542,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "eval":
         return run_eval(config, args.suite, judge_model=getattr(args, "judge_model", None))
+
+    if command == "loop":
+        return run_loop(
+            config,
+            loop_file=args.file,
+            skill=args.skill,
+            max_iterations=getattr(args, "max_iterations", None),
+            check=args.check,
+            streak=args.streak,
+        )
 
     mcp_servers = load_mcp_servers(args.config)
     budget = BudgetGuard(

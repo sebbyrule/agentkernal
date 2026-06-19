@@ -45,6 +45,7 @@ uv run agentkernel run "your prompt"    # single non-interactive run, prints the
 uv run agentkernel run --file task.md   # single run from a prompt file
 uv run agentkernel improve              # reflect on the latest trace, write a rule note
 uv run agentkernel eval --suite s.toml  # run an eval suite, score answers with a judge
+uv run agentkernel loop --file l.toml   # run a workflow loop until its stopping condition
 uv run agentkernel --help               # options
 uv run pytest                           # full test suite, offline
 ```
@@ -218,7 +219,8 @@ On Windows, point `command` at the actual executable (e.g. `npx.cmd`) since the 
 These are implemented on top of the kernel using the three primitives — a tool, a context injection, or a run parameter — never by changing the loop:
 
 - **Profiles** ([`profiles.py`](agentkernel/profiles.py)) — a run parameter `(system_prompt, tool_filter, model_override, rubric)` loaded from `profiles/<name>.toml`. The loop honors `system_prompt` and `tool_filter`.
-- **Skills** ([`skills.py`](agentkernel/skills.py)) — markdown/TOML system-prompt fragments discovered from `skills_dir`; active skills contribute to the (still stable, assembled-once) prefix via a `ContextSource`. Toggle them live with `/skill`.
+- **Skills** ([`skills.py`](agentkernel/skills.py)) — [Anthropic-style](https://github.com/anthropics/skills) `SKILL.md` folders (YAML frontmatter `name`/`description` + body + bundled files) discovered from `skills_dir`, with **progressive disclosure**: only a name+description catalog sits in the (stable, assembled-once) prefix; the model loads a skill's full body + file listing on demand via the `use_skill` tool. A skill can also be *pinned* (`skills = [...]` or `/skill`) to force its body into the prefix. Loose `.md`/`.toml` skills still work.
+- **Loops** ([`loops.py`](agentkernel/loops.py)) — [loop-engineering](https://signals.forwardfuture.ai/loop-library/) workflows: `agentkernel loop` re-runs the agent on a loop's prompt until a stopping condition (a success shell-check and/or an N-in-a-row streak), following **action → check → iterate → stop**. Loops load from TOML or from a skill body (`--skill`), and the success check runs in the sandbox so a loop can verify its own work (e.g. "fix until `pytest` is green").
 - **Memory** ([`memory.py`](agentkernel/memory.py)) — a `MemoryStore` loaded before a run and saved after; ships in-memory and JSONL-file stores. Enable with `memory_store`.
 - **Knowledge graph** ([`knowledge.py`](agentkernel/knowledge.py)) — a file-backed triple store exposed purely as `graph_add`/`graph_query` tools (`enable_graph = true`). The kernel keeps no graph state.
 - **Self-improvement** ([`improvement.py`](agentkernel/improvement.py)) — `agentkernel improve` reads a session trace and asks the model for one concrete rule, written to `improvements_dir`. This is why telemetry exists from turn one.
@@ -248,9 +250,11 @@ agentkernel/
   memory.py             # pre/post-run MemoryStore (Phase 3)
   knowledge.py          # triple store exposed as tools (Phase 6)
   improvement.py        # trace -> improvement rule (Phase 7)
+  skills.py             # Anthropic-style SKILL.md skills (progressive disclosure)
   subagent.py           # spawn tool: delegate to a child Agent
   evaluation.py         # eval harness: judge-scored runs
-  cli.py                # REPL + run/improve/eval entry points
+  loops.py              # loop-engineering runner (run-until-condition)
+  cli.py                # REPL + run/improve/eval/loop entry points
 tests/                  # offline suite (FakeProvider-driven)
 ```
 

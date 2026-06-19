@@ -37,9 +37,17 @@ log_dir = ".agentkernel/traces"
 # memory_store = "file"             # "file" | "memory"
 # memory_dir = ".agentkernel/memory"
 
-# Skills (Phase 4): system-prompt fragments discovered from skills_dir.
+# Skills (Phase 4): Anthropic-style SKILL.md skills discovered from skills_dir.
+# Each skill is a folder with a SKILL.md (YAML frontmatter: name, description;
+# markdown body; optional bundled files). Only name+description are disclosed up
+# front; the model loads a skill's body on demand via the use_skill tool. List
+# names in `skills` to pin their full body into the prompt. See examples/skills/.
 # skills_dir = "skills"
-# skills = ["reviewer", "python"]   # initially-active skill names
+# skills = ["code-review"]          # pinned (always-on) skill names
+
+# Loops (loop engineering) are run from the CLI, not configured here:
+#   agentkernel loop --file examples/loops/until-tests-pass.toml
+#   agentkernel loop --skill <skill-name> --check "uv run pytest -q" --streak 3
 
 # Knowledge graph (Phase 6): exposes graph_add / graph_query tools.
 # enable_graph = true

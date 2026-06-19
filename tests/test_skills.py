@@ -1,85 +1,91 @@
-"""Skills / AGENTS.md loading tests (Phase 4, design §13).
+"""Skills tests (Anthropic-style, design §13 Phase 4).
 
-Skills are reusable system-prompt fragments discovered from files. The kernel
-sees them only as context additions.
+Skills are SKILL.md folders (or loose .md/.toml), surfaced progressively: a
+name+description catalog is always in the prefix, full bodies load on demand via
+the use_skill tool, and a pinned (active) skill's body also joins the prefix.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from agentkernel.skills import DirectorySkillStore
-from tests.fakes import FakeProvider, text_response
+from agentkernel.skills import SkillLibrary, _split_frontmatter, make_skill_tool
 
 
-def test_skill_store_loads_markdown_body_as_prompt(tmp_path):
-    (tmp_path / "reviewer.md").write_text("Always review code carefully.")
-    store = DirectorySkillStore(tmp_path)
-    skill = store.get("reviewer")
-    assert skill is not None
-    assert skill.system_prompt == "Always review code carefully."
-
-
-def test_skill_store_loads_toml_frontmatter_from_markdown(tmp_path):
-    (tmp_path / "coder.md").write_text(
-        "---\n"
-        "name = \"pythonista\"\n"
-        "---\n\n"
-        "Write idiomatic Python."
+def _skill_md(directory, name, desc, body):
+    d = directory / name
+    d.mkdir()
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {desc}\n---\n\n{body}", encoding="utf-8"
     )
-    store = DirectorySkillStore(tmp_path, active_skills=["pythonista"])
-    assert "pythonista" in store.available_skills()
-    assert store.system_additions() == ["Write idiomatic Python."]
+    return d
 
 
-def test_skill_store_loads_toml_file(tmp_path):
-    (tmp_path / "tester.toml").write_text(
-        'name = "qa"\n'
-        'system_prompt = "Never trust a unit test."\n'
+def test_loads_skill_md_folder_with_resources(tmp_path):
+    d = _skill_md(tmp_path, "pdf", "Work with PDF files", "Use pdfplumber to extract text.")
+    (d / "helper.py").write_text("print('x')")
+    lib = SkillLibrary(tmp_path)
+    skill = lib.get("pdf")
+    assert skill.description == "Work with PDF files"
+    assert "pdfplumber" in skill.body
+    assert any(r.endswith("helper.py") for r in skill.resources)
+
+
+def test_loads_loose_md_and_toml(tmp_path):
+    (tmp_path / "a.md").write_text("Just instructions, no frontmatter.")
+    (tmp_path / "b.toml").write_text(
+        'name = "qa"\ndescription = "QA skill"\nsystem_prompt = "Never trust a test."\n'
     )
-    store = DirectorySkillStore(tmp_path, active_skills=["qa"])
-    assert store.system_additions() == ["Never trust a unit test."]
+    lib = SkillLibrary(tmp_path)
+    assert lib.get("a").body == "Just instructions, no frontmatter."
+    assert lib.get("qa").body == "Never trust a test."
 
 
-def test_skill_store_returns_no_additions_when_nothing_active(tmp_path):
-    (tmp_path / "a.md").write_text("be concise")
-    store = DirectorySkillStore(tmp_path)
-    assert store.system_additions() == []
+def test_split_frontmatter_yaml_subset():
+    meta, body = _split_frontmatter(
+        '---\nname: x\ndescription: "hi there"\ntools:\n  - read\n  - write\n---\nBody here'
+    )
+    assert meta["name"] == "x" and meta["description"] == "hi there"
+    assert meta["tools"] == ["read", "write"]
+    assert body == "Body here"
+    assert _split_frontmatter("no frontmatter") == ({}, "no frontmatter")
 
 
-def test_skill_store_toggle_activation(tmp_path):
-    (tmp_path / "s.md").write_text("S")
-    store = DirectorySkillStore(tmp_path)
-    assert store.activate("s") is True
-    assert store.system_additions() == ["S"]
-    assert store.activate("s") is False
-    assert store.system_additions() == []
+def test_catalog_always_present_and_pin_adds_body(tmp_path):
+    _skill_md(tmp_path, "terse", "Be brief", "Answer in one word.")
+    lib = SkillLibrary(tmp_path)
+
+    adds = lib.system_additions()
+    assert adds and adds[0].startswith("# Available skills")
+    assert "terse: Be brief" in adds[0]  # catalog discloses name + description
+    assert all("Answer in one word." not in a for a in adds[1:])  # body not yet shown
+
+    lib.activate("terse")
+    assert any(a == "Answer in one word." for a in lib.system_additions())
 
 
-def test_agent_applies_skill_context_source(agent_builder):
-    store = DirectorySkillStore.__new__(DirectorySkillStore)
-    from agentkernel.skills import Skill
-    store._skills = {"concise": Skill(name="concise", system_prompt="Reply in one word.")}
-    store.active_skills = {"concise"}
-    provider = FakeProvider([text_response("hi")])
-    agent = agent_builder(provider)
-    agent.context_source = store
-    agent.run("hello")
-    assert provider.system_args[0] == "Reply in one word."
+def test_no_skills_means_no_additions(tmp_path):
+    assert SkillLibrary(tmp_path).system_additions() == []
 
 
-def test_agent_combines_profile_and_skill_prompts(agent_builder):
-    from agentkernel.profiles import Profile
-    from agentkernel.skills import Skill
+def test_use_returns_body_and_resources(tmp_path):
+    d = _skill_md(tmp_path, "pdf", "PDF", "Extract with pdfplumber.")
+    (d / "reference.md").write_text("ref")
+    lib = SkillLibrary(tmp_path)
+    out = lib.use("pdf")
+    assert "Extract with pdfplumber." in out and "reference.md" in out
+    assert "Unknown skill" in lib.use("nope")
 
-    store = DirectorySkillStore.__new__(DirectorySkillStore)
-    store._skills = {"skill1": Skill(name="skill1", system_prompt="Skill text.")}
-    store.active_skills = {"skill1"}
-    provider = FakeProvider([text_response("ok")])
-    agent = agent_builder(provider)
-    agent.context_source = store
-    profile = Profile(name="test", system_prompt="Profile text.")
-    agent.run("go", profile=profile)
-    system = provider.system_args[0]
-    assert "Profile text." in system
-    assert "Skill text." in system
+
+def test_use_skill_tool(tmp_path):
+    _skill_md(tmp_path, "x", "X skill", "Do the X thing.")
+    tool = make_skill_tool(SkillLibrary(tmp_path))
+    ok = tool.handler({"name": "x"})
+    assert not ok.is_error and "Do the X thing." in ok.content
+    assert tool.handler({"name": "missing"}).is_error
+
+
+def test_activate_toggle(tmp_path):
+    _skill_md(tmp_path, "s", "S desc", "S body")
+    lib = SkillLibrary(tmp_path)
+    assert lib.activate("s") is True
+    assert lib.activate("s") is False
+    assert lib.activate("unknown") is False

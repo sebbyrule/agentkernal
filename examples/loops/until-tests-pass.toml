@@ -1,0 +1,14 @@
+# A loop-engineering workflow: keep fixing until the test suite is green.
+# Run with:  agentkernel loop --file examples/loops/until-tests-pass.toml
+name = "until-tests-pass"
+description = "Iteratively fix failing tests until the suite passes."
+
+prompt = """
+Run the test suite with `uv run pytest -q`. If anything fails, read the failing
+test and the code under test, make the smallest correct fix with write_file, and
+stop. Do not change tests to make them pass. If everything already passes, say so.
+"""
+
+max_iterations = 5
+success_check = "uv run pytest -q"   # exit 0 => success
+success_streak = 1                   # one green run is enough to stop
