@@ -8,7 +8,8 @@ and non-interactive runs) and resolves ``ask`` to a fixed default.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from agentkernel.approval.policy import decide
 from agentkernel.types import ToolCall
@@ -44,7 +45,7 @@ class AutoApprover:
         self._allowlist = allowlist or []
         self._ask_default = ask_default
 
-    def approve(self, call: ToolCall, spec: "ToolSpec") -> bool:
+    def approve(self, call: ToolCall, spec: ToolSpec) -> bool:
         decision = decide(self._policy, spec, call, self._allowlist)
         if decision == "allow":
             return True
@@ -70,7 +71,7 @@ class CliApprover:
         self._input = input_fn
         self._output = output_fn
 
-    def approve(self, call: ToolCall, spec: "ToolSpec") -> bool:
+    def approve(self, call: ToolCall, spec: ToolSpec) -> bool:
         decision = decide(self._policy, spec, call, self._allowlist)
         if decision == "allow":
             return True

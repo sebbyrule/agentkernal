@@ -4,7 +4,7 @@ Persistent build instructions for Claude Code. Read this before every task. The 
 
 ## Project
 
-**agentcore** — a minimal, dependency-light kernel for a general-purpose AI agent. The kernel runs the agent loop (model → tool calls → results → repeat) and nothing more. All higher-level features (MCP, skills, profiles, memory, knowledge graph, self-improvement) are later phases and are **out of scope right now** — leave the seams described in §13 of the design doc, do not implement them.
+**agentkernel** — a minimal, dependency-light kernel for a general-purpose AI agent. The kernel runs the agent loop (model → tool calls → results → repeat) and nothing more. All higher-level features (MCP, skills, profiles, memory, knowledge graph, self-improvement) are later phases and are **out of scope right now** — leave the seams described in §13 of the design doc, do not implement them.
 
 Build strictly to `agent-kernel-design.md`. If something is unspecified, follow the design principles below and leave a `# TODO(owner):` note rather than inventing scope.
 
@@ -19,7 +19,7 @@ Build strictly to `agent-kernel-design.md`. If something is unspecified, follow 
 
 These come from the design doc's principles and are non-negotiable:
 
-1. **One canonical message format** (`agentcore/types.py`). Provider-specific shapes (Anthropic content blocks, OpenAI `tool_calls`) are translated inside `providers/*` adapters and never appear in the loop, the registry, or the context manager.
+1. **One canonical message format** (`agentkernel/types.py`). Provider-specific shapes (Anthropic content blocks, OpenAI `tool_calls`) are translated inside `providers/*` adapters and never appear in the loop, the registry, or the context manager.
 2. **Errors become tool results, not exceptions.** Validation failures, approval denials, and handler exceptions return `ToolResult(is_error=True, ...)` so the loop continues and the model can recover. Only kernel faults (provider unreachable after retries, invalid config) raise.
 3. **The cacheable prefix is stable.** System prompt + tool definitions are assembled once per run and never reordered between turns. Re-sorting tools silently destroys prompt-cache hit-rate. Treat prefix stability as a correctness property, not an optimization.
 4. **Every mutation is gated.** Any tool with `mutates`, `runs_code`, or `requires_approval` passes through the `Approver` before executing. Shell/code runs inside the `Sandbox` boundary, confined to the working directory.
@@ -60,10 +60,10 @@ Do not begin any out-of-scope phase (MCP, skills, profiles, memory, graph, self-
 ```bash
 uv sync
 uv run pytest                 # full suite, offline
-uv run agentcore              # start the interactive REPL (M4+)
+uv run agentkernel            # start the interactive REPL (M4+)
 ```
 
-Configuration loads from `agentcore.toml` (+ `AGENTCORE_*` env overrides). API keys come **only** from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) — never read them from, or write them to, the config file or traces.
+Configuration loads from `agentkernel.toml` (+ `AGENTKERNEL_*` env overrides). API keys come **only** from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) — never read them from, or write them to, the config file or traces.
 
 ## Do NOT
 

@@ -14,10 +14,11 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from agentkernel.context import CompactionEvent
@@ -30,7 +31,7 @@ class ToolOutcome:
 
     name: str
     arguments: dict[str, Any]
-    approved: Optional[bool]  # True executed, False denied, None never reached the gate
+    approved: bool | None  # True executed, False denied, None never reached the gate
     is_error: bool
 
 
@@ -69,26 +70,47 @@ def estimate_cost(model: str, usage, prices: dict[str, Price]) -> float | None:
 
 
 class Telemetry(Protocol):
+    """Minimal telemetry interface for the agent loop."""
+
+    @property
+    def model(self) -> str:
+        """Model name used for cost estimates."""
+        ...
+
+    @property
+    def prices(self) -> dict[str, Price]:
+        """Price table used for cost estimates."""
+        ...
+
     def record_turn(
         self,
         iteration: int,
-        response: "CompletionResponse",
+        response: CompletionResponse,
         *,
         tool_outcomes: Sequence[ToolOutcome] = (),
-        compaction: "CompactionEvent | None" = None,
-    ) -> None: ...
+        compaction: CompactionEvent | None = None,
+    ) -> None:
+        ...
 
 
 class NullTelemetry:
     """Records nothing. Used where tracing is not configured (and by tests)."""
 
+    @property
+    def model(self) -> str:
+        return "null"
+
+    @property
+    def prices(self) -> dict[str, Price]:
+        return DEFAULT_PRICES.copy()
+
     def record_turn(
         self,
         iteration: int,
-        response: "CompletionResponse",
+        response: CompletionResponse,
         *,
         tool_outcomes: Sequence[ToolOutcome] = (),
-        compaction: "CompactionEvent | None" = None,
+        compaction: CompactionEvent | None = None,
     ) -> None:
         return None
 
@@ -129,17 +151,25 @@ class JsonlTelemetry:
         self.path = directory / f"{self.session_id}.jsonl"
         self._fh = self.path.open("a", encoding="utf-8")
 
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def prices(self) -> dict[str, Price]:
+        return self._prices
+
     def record_turn(
         self,
         iteration: int,
-        response: "CompletionResponse",
+        response: CompletionResponse,
         *,
         tool_outcomes: Sequence[ToolOutcome] = (),
-        compaction: "CompactionEvent | None" = None,
+        compaction: CompactionEvent | None = None,
     ) -> None:
         usage = response.usage
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "session_id": self.session_id,
             "iteration": iteration,
             "model": self._model,

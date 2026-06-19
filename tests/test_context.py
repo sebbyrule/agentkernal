@@ -14,7 +14,6 @@ from agentkernel.context.truncate import truncate_text
 from agentkernel.providers import ProviderError
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import Message, ToolCall, ToolResult
-
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 
@@ -71,7 +70,7 @@ def test_compaction_never_splits_open_tool_pair():
 
 def test_keeps_recent_when_nothing_old_enough():
     cm = ContextManager(budget=1, keep_recent_turns=3)
-    for i in range(2):  # fewer turns than keep_recent_turns
+    for _i in range(2):  # fewer turns than keep_recent_turns
         cm.add(_user("x" * 400))
     # Over budget but nothing older than the kept window -> returned as-is.
     assert len(cm.window()) == 2

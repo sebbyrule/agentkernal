@@ -17,3 +17,16 @@ approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations
 working_dir = "."
 # summarizer_model = "claude-haiku-4-5-20251001"   # cheap model for compaction (M2)
 log_dir = ".agentkernel/traces"
+
+# MCP servers (Phase 2). Each is launched over stdio; its tools register into
+# the same registry as the builtins. Read-only tools (readOnlyHint) skip the
+# approval gate; everything else is gated by default.
+# [[mcp_servers]]
+# name = "filesystem"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+#
+# [[mcp_servers]]
+# name = "git"
+# command = "uvx"
+# args = ["mcp-server-git"]

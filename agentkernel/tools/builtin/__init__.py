@@ -15,12 +15,12 @@ __all__ = ["file_tools", "bash_tool", "default_tools"]
 
 
 def default_tools(
-    sandbox: "Sandbox",
+    sandbox: Sandbox,
     working_dir: str = ".",
     *,
     max_result_tokens: int = 4096,
     bash_timeout: int = 60,
-) -> list["ToolSpec"]:
+) -> list[ToolSpec]:
     """The full builtin toolset: file tools + bash, bound to one working dir."""
     tools = file_tools(working_dir, max_result_tokens=max_result_tokens)
     tools.append(bash_tool(sandbox, working_dir, timeout=bash_timeout))

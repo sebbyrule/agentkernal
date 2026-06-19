@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class Approver(Protocol):
-    def approve(self, call: ToolCall, spec: "ToolSpec") -> bool: ...
+    def approve(self, call: ToolCall, spec: ToolSpec) -> bool: ...
 
 
 class Sandbox(Protocol):

@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 
-def make_provider(config: "Config") -> Provider:
+def make_provider(config: Config) -> Provider:
     """Construct the adapter named by ``config.provider``. Keys come from env."""
     if config.provider == "anthropic":
         return AnthropicProvider(config.model)

@@ -8,7 +8,6 @@ from agentkernel.approval import AutoApprover, CliApprover
 from agentkernel.approval.policy import decide
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import ToolCall, ToolResult
-
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 _SCHEMA = {

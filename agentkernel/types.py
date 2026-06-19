@@ -9,7 +9,7 @@ adapter speaks a provider's native format: Anthropic content blocks and OpenAI
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 Role = Literal["system", "user", "assistant", "tool"]
 
@@ -35,7 +35,7 @@ class ToolResult:
     call_id: str
     content: str  # text shown to the model
     is_error: bool = False
-    data: Optional[dict] = None  # structured payload for kernel use; not model-visible
+    data: dict | None = None  # structured payload for kernel use; not model-visible
 
 
 @dataclass
@@ -53,7 +53,7 @@ class Message:
     tool_results: list[ToolResult] = field(default_factory=list)  # tool turns only
     # Bookkeeping:
     cacheable: bool = False  # marks a stable prefix boundary (design §9.3)
-    token_estimate: Optional[int] = None
+    token_estimate: int | None = None
 
 
 @dataclass

@@ -14,7 +14,6 @@ from agentkernel.telemetry import (
 )
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import CompletionResponse, Message, ToolCall, ToolResult, Usage
-
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 
@@ -55,7 +54,12 @@ def test_record_has_full_schema(tmp_path):
 
 def test_redaction_default_hides_raw_args(tmp_path):
     tel = JsonlTelemetry(str(tmp_path), "gpt-4o", session_id="s2")
-    tel.record_turn(0, _resp(), tool_outcomes=[ToolOutcome("write_file", {"path": "secret.txt", "content": "sk-123"}, True, False)])
+    tel.record_turn(
+        0, _resp(),
+        tool_outcomes=[ToolOutcome(
+            "write_file", {"path": "secret.txt", "content": "sk-123"}, True, False
+        )],
+    )
     tel.close()
     (rec,) = _read(tmp_path / "s2.jsonl")
     entry = rec["tool_calls"][0]
@@ -94,7 +98,12 @@ def test_loop_appends_one_record_per_turn(tmp_path, agent_builder):
         ToolSpec(
             "echo",
             "d",
-            {"type": "object", "properties": {"v": {"type": "string"}}, "required": ["v"], "additionalProperties": False},
+            {
+                "type": "object",
+                "properties": {"v": {"type": "string"}},
+                "required": ["v"],
+                "additionalProperties": False,
+            },
             lambda a: ToolResult("", "ok"),
         )
     )

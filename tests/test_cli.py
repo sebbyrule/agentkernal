@@ -1,12 +1,13 @@
-"""REPL tests (design §16, M4): the loop echoes answers, persists context across
-messages, handles exit/EOF, and surfaces provider errors without crashing. Runs
-offline against a scripted provider."""
+"""REPL and CLI tests (design §16, M4).
+
+Tests run offline against a scripted provider."""
 
 from __future__ import annotations
 
-from agentkernel.cli import repl
+from agentkernel.cli import repl, run_once
 from agentkernel.providers import ProviderError
-
+from agentkernel.tools import ToolRegistry, ToolSpec
+from agentkernel.types import ToolResult
 from tests.fakes import FakeProvider, text_response
 
 
@@ -20,6 +21,19 @@ class _ScriptedInput:
         if not self._lines:
             raise EOFError
         return self._lines.pop(0)
+
+
+def _echo_tool() -> ToolSpec:
+    return ToolSpec(
+        name="echo",
+        description="Echo the given value back.",
+        parameters={
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+        },
+        handler=lambda args: ToolResult("", f"echo:{args['value']}"),
+    )
 
 
 def test_repl_prints_answer_then_exits(agent_builder):
@@ -56,3 +70,71 @@ def test_repl_surfaces_provider_error_without_crashing(agent_builder):
     out: list[str] = []
     repl(agent, input_fn=_ScriptedInput(["hi", "exit"]), output_fn=out.append)
     assert any("provider error" in line for line in out)
+
+
+def test_run_once_prints_answer(agent_builder):
+    provider = FakeProvider([text_response("hello!")])
+    agent = agent_builder(provider)
+    out: list[str] = []
+    assert run_once(agent, "hi", output_fn=out.append) == 0
+    assert "hello!" in out
+
+
+def test_repl_slash_exit(agent_builder):
+    provider = FakeProvider([])
+    agent = agent_builder(provider)
+    out: list[str] = []
+    code = repl(agent, input_fn=_ScriptedInput(["/exit"]), output_fn=out.append)
+    assert code == 0
+    assert not any("hello" in line for line in out)
+
+
+def test_repl_slash_clear_clears_context(agent_builder):
+    provider = FakeProvider([text_response("ok")])
+    agent = agent_builder(provider)
+    repl(
+        agent,
+        input_fn=_ScriptedInput(["/clear", "go", "exit"]),
+        output_fn=lambda _line: None,
+    )
+    # Context was reset; only the "go" turn reaches the provider.
+    assert len(provider.calls) == 1
+    assert provider.calls[0][-1].role == "user"
+    assert provider.calls[0][-1].content == "go"
+
+
+def test_repl_slash_system_sets_prompt(agent_builder):
+    provider = FakeProvider([text_response("ok")])
+    agent = agent_builder(provider)
+    repl(
+        agent,
+        input_fn=_ScriptedInput(["/system be helpful", "go", "exit"]),
+        output_fn=lambda _line: None,
+    )
+    assert provider.system_args == ["be helpful"]
+
+
+def test_repl_slash_tools_lists_tools(agent_builder):
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    provider = FakeProvider([])
+    agent = agent_builder(provider, registry=registry)
+    out: list[str] = []
+    repl(
+        agent,
+        input_fn=_ScriptedInput(["/tools", "exit"]),
+        output_fn=out.append,
+    )
+    assert any("echo" in line for line in out)
+
+
+def test_repl_unknown_slash_command(agent_builder):
+    provider = FakeProvider([])
+    agent = agent_builder(provider)
+    out: list[str] = []
+    repl(
+        agent,
+        input_fn=_ScriptedInput(["/nope", "exit"]),
+        output_fn=out.append,
+    )
+    assert any("unknown command" in line for line in out)

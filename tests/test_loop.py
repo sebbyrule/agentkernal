@@ -6,7 +6,6 @@ from __future__ import annotations
 from agentkernel.config import Config
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import ToolCall, ToolResult
-
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 _ECHO_SCHEMA = {

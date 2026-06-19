@@ -8,8 +8,9 @@ special-cased per origin.
 from __future__ import annotations
 
 import traceback
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 import jsonschema
 
@@ -56,14 +57,14 @@ class ToolRegistry:
             raise ValueError(f"tool already registered: {spec.name!r}")
         self._specs[spec.name] = spec
 
-    def spec(self, name: str) -> Optional[ToolSpec]:
+    def spec(self, name: str) -> ToolSpec | None:
         return self._specs.get(name)
 
     def specs(self) -> list[ToolSpec]:
         """All specs in stable registration order (for the provider prefix)."""
         return list(self._specs.values())
 
-    def validate(self, call: ToolCall) -> Optional[str]:
+    def validate(self, call: ToolCall) -> str | None:
         """Validate ``call.arguments`` against the tool's schema.
 
         Returns an error string on failure (unknown tool or schema violation) or

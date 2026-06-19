@@ -165,6 +165,21 @@ Per-message token accounting, a budget (`provider.context_window − output_rese
 
 One JSONL file per session. Each turn records tokens (input/output/cache), estimated cost (from a per-model price table; unknown models log tokens with `null` cost), tool-call outcomes, stop reason, and any compaction event. **Redaction is the default** — tool arguments are logged as a hash + length, never raw; file contents never enter a record. `--verbose-trace` opts into raw arguments for local debugging.
 
+### MCP ([`mcp/`](agentkernel/mcp))
+
+A hand-written [Model Context Protocol](https://modelcontextprotocol.io) client (JSON-RPC 2.0 over stdio — no SDK dependency) connects to MCP servers, discovers their tools, and registers each as an ordinary `ToolSpec`. The registry and loop are **completely unchanged** — an MCP-backed tool and a native builtin register identically. Read-only tools (advertising `readOnlyHint`) skip the approval gate; everything else is gated by default. A transport or protocol fault becomes an error result, never a raise.
+
+Declare servers in `agentkernel.toml`:
+
+```toml
+[[mcp_servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+```
+
+On Windows, point `command` at the actual executable (e.g. `npx.cmd`) since the client launches the process directly without a shell.
+
 ---
 
 ## Project layout
@@ -179,6 +194,7 @@ agentkernel/
   tools/                # ToolSpec, ToolRegistry, builtin file & shell tools
   context/              # accounting, compaction, shared truncation
   approval/             # Approver, Sandbox, policies
+  mcp/                  # MCP stdio client; registers remote tools as ToolSpecs
   cli.py                # REPL entry point
 tests/                  # offline suite (FakeProvider-driven)
 ```
@@ -195,11 +211,11 @@ The suite is **fully offline** — a `FakeProvider` returns scripted responses, 
 
 ---
 
-## Extension seams (not yet implemented)
+## Extension seams
 
 The kernel deliberately leaves interfaces — not implementations — for later phases, so they plug in without reshaping the core:
 
-- **MCP** — an MCP client registers each remote tool as a `ToolSpec`; no loop or registry change.
+- **MCP** *(implemented — see [`mcp/`](agentkernel/mcp))* — an MCP client registers each remote tool as a `ToolSpec`, with no loop or registry change. This is the proof that the tool seam is right.
 - **Skills / AGENTS.md** — a context source consulted when assembling the system prompt (must not disturb prefix stability).
 - **Profiles & evaluators** — `run()` already accepts a `profile` parameter.
 - **Memory** — pre-run load hook and post-run save hook around `run`.

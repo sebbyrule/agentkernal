@@ -9,8 +9,9 @@ to its call id (design §8), until the model produces a final answer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
+from agentkernel.budget import BudgetGuard
 from agentkernel.context.truncate import truncate_text
 from agentkernel.telemetry import ToolOutcome
 from agentkernel.types import Message, ToolResult
@@ -31,12 +32,13 @@ class Agent:
 
     def __init__(
         self,
-        provider: "Provider",
-        registry: "ToolRegistry",
-        context: "ContextManager",
-        approver: "Approver",
-        telemetry: "Telemetry",
-        config: "Config",
+        provider: Provider,
+        registry: ToolRegistry,
+        context: ContextManager,
+        approver: Approver,
+        telemetry: Telemetry,
+        config: Config,
+        budget: BudgetGuard | None = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -44,8 +46,9 @@ class Agent:
         self.approver = approver
         self.telemetry = telemetry
         self.config = config
+        self.budget = budget
 
-    def run(self, user_input: str, *, profile: Optional[Any] = None) -> str:
+    def run(self, user_input: str, *, profile: Any | None = None) -> str:
         """Drive the loop until a final answer or the max-iteration guard.
 
         ``profile`` (design §13, Phase 5) is accepted but, in the kernel, only
@@ -59,6 +62,9 @@ class Agent:
         tools = self._tools_for(profile)
         system = self._system_for(profile)
 
+        if self.budget is not None:
+            self.budget.reset()
+
         for iteration in range(self.config.max_iterations):
             messages = self.context.window()  # compacted to budget in M2
 
@@ -70,6 +76,17 @@ class Agent:
             )
             self.context.add(resp.message)
             compaction = self.context.take_compaction()
+
+            if self.budget is not None:
+                self.budget.add(resp.usage)
+                exceeded, reason = self.budget.exceeded()
+                if exceeded:
+                    # The token spend already happened; record it, then either
+                    # return the final answer (if we have one) or stop early.
+                    self.telemetry.record_turn(iteration, resp, compaction=compaction)
+                    if not resp.message.tool_calls:
+                        return resp.message.content
+                    return f"Stopped: budget exceeded ({reason})."
 
             if not resp.message.tool_calls:
                 self.telemetry.record_turn(iteration, resp, compaction=compaction)
@@ -114,7 +131,7 @@ class Agent:
 
     # --- profile seams (design §13, Phase 5) -------------------------------
 
-    def _tools_for(self, profile: Optional[Any]) -> list["ToolSpec"]:
+    def _tools_for(self, profile: Any | None) -> list[ToolSpec]:
         """The tool set for this run. Stable across turns to keep the prefix
         cacheable (design §9.3): assembled from the registry's registration
         order and not re-sorted."""
@@ -125,9 +142,9 @@ class Agent:
             specs = [s for s in specs if s.name in allowed]
         return specs
 
-    def _system_for(self, profile: Optional[Any]) -> Optional[str]:
+    def _system_for(self, profile: Any | None) -> str | None:
         return getattr(profile, "system_prompt", None)
 
     @staticmethod
-    def _needs_approval(spec: Optional["ToolSpec"]) -> bool:
+    def _needs_approval(spec: ToolSpec | None) -> bool:
         return bool(spec and spec.gated)

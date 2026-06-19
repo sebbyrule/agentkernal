@@ -23,7 +23,7 @@ class Provider(Protocol):
     def complete(
         self,
         messages: list[Message],
-        tools: list["ToolSpec"],
+        tools: list[ToolSpec],
         *,
         max_tokens: int,
         temperature: float = 1.0,

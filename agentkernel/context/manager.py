@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 from agentkernel.context.truncate import CHARS_PER_TOKEN, truncate_text
 from agentkernel.types import Message
@@ -90,7 +91,7 @@ class ModelSummarizer:
     so compaction — and therefore the loop — can never crash on it.
     """
 
-    def __init__(self, provider: "Provider", *, max_tokens: int = 512) -> None:
+    def __init__(self, provider: Provider, *, max_tokens: int = 512) -> None:
         self._provider = provider
         self._max_tokens = max_tokens
 
@@ -124,7 +125,7 @@ class ContextManager:
         *,
         budget: int | None = None,
         keep_recent_turns: int = 6,
-        summarizer: Optional[Summarizer] = None,
+        summarizer: Summarizer | None = None,
         estimator: Callable[[Message], int] = estimate_tokens,
     ) -> None:
         # budget=None means unlimited (no compaction) — used by tests that don't
@@ -147,6 +148,10 @@ class ContextManager:
     def messages(self) -> list[Message]:
         """The full stored history."""
         return list(self._messages)
+
+    def clear(self) -> None:
+        """Drop all stored messages. System-prompt/tool prefix is unaffected."""
+        self._messages = []
 
     def window(self) -> list[Message]:
         """Messages to send this turn, compacted in place if over budget (§9.2)."""

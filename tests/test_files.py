@@ -8,7 +8,6 @@ from agentkernel.context.truncate import truncate_text
 from agentkernel.tools import ToolRegistry
 from agentkernel.tools.builtin import file_tools
 from agentkernel.types import ToolCall
-
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 

@@ -33,6 +33,8 @@ class Config:
     working_dir: str = "."
     summarizer_model: str | None = None  # cheap model for compaction; None -> structural
     log_dir: str = ".agentkernel/traces"
+    max_cost_usd: float | None = None  # stop if cumulative cost exceeds this
+    max_input_tokens_per_run: int | None = None  # stop if input tokens exceed this
 
     @classmethod
     def load(
@@ -41,7 +43,7 @@ class Config:
         *,
         env: dict[str, str] | None = None,
         **overrides: Any,
-    ) -> "Config":
+    ) -> Config:
         """Build a Config from defaults < file < environment < explicit overrides."""
         env = os.environ if env is None else env
         values: dict[str, Any] = {}
@@ -69,8 +71,16 @@ def _coerce(raw: str, typ: Any) -> Any:
     # Field types are stringified annotations under ``from __future__ import``.
     if typ == "int":
         return int(raw)
+    if typ == "float":
+        return float(raw)
     if typ == "list[str]":
         return [s.strip() for s in raw.split(",") if s.strip()]
-    if typ in ("str | None", "int | None"):
-        return None if raw == "" else (int(raw) if "int" in typ else raw)
+    if typ in ("str | None", "int | None", "float | None"):
+        if raw == "":
+            return None
+        if "int" in typ:
+            return int(raw)
+        if "float" in typ:
+            return float(raw)
+        return raw
     return raw

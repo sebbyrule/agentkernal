@@ -29,7 +29,7 @@ _BASH_SCHEMA = {
 }
 
 
-def bash_tool(sandbox: "Sandbox", working_dir: str = ".", *, timeout: int = 60) -> ToolSpec:
+def bash_tool(sandbox: Sandbox, working_dir: str = ".", *, timeout: int = 60) -> ToolSpec:
     """Build the bash tool bound to ``sandbox`` and ``working_dir``."""
 
     def bash(args: dict) -> ToolResult:

@@ -37,7 +37,7 @@ def _allowlisted(call: ToolCall, allowlist: list[str]) -> bool:
 
 def decide(
     policy: str,
-    spec: "ToolSpec",
+    spec: ToolSpec,
     call: ToolCall,
     allowlist: list[str] | None = None,
 ) -> Decision:

@@ -9,8 +9,7 @@ import os
 from agentkernel.approval import AutoApprover, LocalSandbox
 from agentkernel.tools import ToolRegistry
 from agentkernel.tools.builtin import bash_tool
-from agentkernel.types import ToolCall, ToolResult
-
+from agentkernel.types import ToolCall
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 
