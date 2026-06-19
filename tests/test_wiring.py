@@ -93,6 +93,26 @@ def test_repl_skills_lists_available(agent_builder, tmp_path):
     assert any("alpha" in line for line in out)
 
 
+# --- sub-agent spawn (design §13) ------------------------------------------
+
+
+def test_spawn_tool_registered_when_enabled(tmp_path):
+    cfg = _cfg(tmp_path, enable_spawn=True)
+    agent, telemetry, clients = build_runtime(cfg)
+    try:
+        assert "spawn" in {s.name for s in agent.registry.specs()}
+    finally:
+        _teardown(telemetry, clients)
+
+
+def test_spawn_tool_absent_by_default(tmp_path):
+    agent, telemetry, clients = build_runtime(_cfg(tmp_path))
+    try:
+        assert "spawn" not in {s.name for s in agent.registry.specs()}
+    finally:
+        _teardown(telemetry, clients)
+
+
 # --- self-improvement (Phase 7) --------------------------------------------
 
 

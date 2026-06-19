@@ -48,6 +48,21 @@ log_dir = ".agentkernel/traces"
 # Self-improvement (Phase 7): where `agentkernel improve` writes rule notes.
 # improvements_dir = ".agentkernel/improvements"
 
+# Sub-agents: register a `spawn` tool so the model can delegate to children.
+# enable_spawn = true
+# spawn_max_depth = 2
+
+# Evaluators (`agentkernel eval --suite suite.toml`): judge-scored runs.
+# judge_model = "claude-haiku-4-5-20251001"   # defaults to `model`
+# eval_threshold = 0.6
+
+# An eval suite is a separate TOML file, e.g. suite.toml:
+#   rubric = "The answer is correct and complete."   # default for all cases
+#   [[cases]]
+#   name = "arithmetic"
+#   prompt = "What is 17 * 23?"
+#   rubric = "States 391."                            # optional per-case override
+
 # MCP servers (Phase 2). Each is launched over stdio; its tools register into
 # the same registry as the builtins. Read-only tools (readOnlyHint) skip the
 # approval gate; everything else is gated by default.

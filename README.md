@@ -44,6 +44,7 @@ uv run agentkernel                      # interactive REPL (default)
 uv run agentkernel run "your prompt"    # single non-interactive run, prints the answer
 uv run agentkernel run --file task.md   # single run from a prompt file
 uv run agentkernel improve              # reflect on the latest trace, write a rule note
+uv run agentkernel eval --suite s.toml  # run an eval suite, score answers with a judge
 uv run agentkernel --help               # options
 uv run pytest                           # full test suite, offline
 ```
@@ -118,6 +119,9 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `skills_dir` / `skills` | `skills` / `[]` | skill source directory and the initially-active skill names |
 | `enable_graph` / `graph_path` | `False` / `.agentkernel/graph.jsonl` | register `graph_add`/`graph_query` tools backed by this file |
 | `improvements_dir` | `.agentkernel/improvements` | where `improve` writes reflection notes |
+| `sandbox` / `sandbox_image` / `sandbox_network` | `local` / `python:3.12-slim` / `none` | execution boundary: `local` or `docker`, plus the container image and network |
+| `enable_spawn` / `spawn_max_depth` | `False` / `2` | register the `spawn` sub-agent tool and bound its recursion |
+| `judge_model` / `eval_threshold` | `None` / `0.6` | model that scores evals (defaults to `model`) and the pass cutoff |
 
 MCP servers are declared separately as `[[mcp_servers]]` tables (see [MCP](#mcp-mcp) below).
 
@@ -219,6 +223,8 @@ These are implemented on top of the kernel using the three primitives — a tool
 - **Knowledge graph** ([`knowledge.py`](agentkernel/knowledge.py)) — a file-backed triple store exposed purely as `graph_add`/`graph_query` tools (`enable_graph = true`). The kernel keeps no graph state.
 - **Self-improvement** ([`improvement.py`](agentkernel/improvement.py)) — `agentkernel improve` reads a session trace and asks the model for one concrete rule, written to `improvements_dir`. This is why telemetry exists from turn one.
 - **Budget guard** ([`budget.py`](agentkernel/budget.py)) — per-run cost/token ceilings (`max_cost_usd`, `max_input_tokens_per_run`) that stop a run cleanly.
+- **Sub-agents** ([`subagent.py`](agentkernel/subagent.py)) — `enable_spawn = true` registers a `spawn` tool so the model can delegate a self-contained subtask to a focused child `Agent` (own context, optional system prompt and tool subset), depth-limited by `spawn_max_depth`. Built on the loop's re-entrancy; no loop change.
+- **Evaluators** ([`evaluation.py`](agentkernel/evaluation.py)) — `agentkernel eval --suite suite.toml` runs each case through the agent, then a judge model scores the answer against a rubric (0–1, pass/fail). Aggregates to pass-rate and mean score; exits non-zero unless every case passes, so it doubles as a CI gate and a way to compare models.
 
 ---
 
@@ -242,7 +248,9 @@ agentkernel/
   memory.py             # pre/post-run MemoryStore (Phase 3)
   knowledge.py          # triple store exposed as tools (Phase 6)
   improvement.py        # trace -> improvement rule (Phase 7)
-  cli.py                # REPL + run/improve entry points
+  subagent.py           # spawn tool: delegate to a child Agent
+  evaluation.py         # eval harness: judge-scored runs
+  cli.py                # REPL + run/improve/eval entry points
 tests/                  # offline suite (FakeProvider-driven)
 ```
 
@@ -267,8 +275,9 @@ The kernel proves its design by adding every capability through one of three pri
 - **Skills** — a `ContextSource` contributes system-prompt text (a context injection).
 - **Memory** — pre-run load and post-run save hooks around `run` (context injection).
 - **Profiles** — `run()` accepts a `profile` parameter (a run parameter).
-- **Sub-agents** — enabled by the loop's re-entrancy; a tool handler can spawn a child `Agent`.
+- **Sub-agents** — the `spawn` tool builds a child `Agent` from inside a handler (a tool, on top of re-entrancy).
 - **Self-improvement** — reads the telemetry the kernel has emitted since turn one.
+- **Evaluators** — a harness that runs the agent and judge-scores the output; no kernel change.
 
 Each lands at the edge. The loop in [`agent.py`](agentkernel/agent.py) still reads like the design's pseudocode.
 

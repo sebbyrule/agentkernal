@@ -22,7 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from agentkernel.agent import Agent
-from agentkernel.approval import CliApprover, Sandbox, make_sandbox
+from agentkernel.approval import AutoApprover, CliApprover, Sandbox, make_sandbox
 from agentkernel.budget import BudgetGuard
 from agentkernel.config import Config
 from agentkernel.context import ContextManager, ModelSummarizer
@@ -34,6 +34,7 @@ from agentkernel.progress import ProgressTelemetry
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.providers import ProviderError, make_provider
 from agentkernel.skills import DirectorySkillStore
+from agentkernel.subagent import make_spawn_tool
 from agentkernel.telemetry import JsonlTelemetry, NullTelemetry
 from agentkernel.tools import ToolRegistry
 from agentkernel.tools.builtin import default_tools
@@ -100,6 +101,22 @@ def build_runtime(
         summarizer=summarizer,
     )
     approver = CliApprover(config.approval_policy, allowlist=config.approval_allowlist)
+
+    # Sub-agent delegation (design §13): the model can spawn focused children.
+    # base_specs snapshots the tools BEFORE spawn so spawn isn't self-recursive
+    # except through the explicit, depth-limited spawn tools it creates.
+    if config.enable_spawn:
+        base_specs = registry.specs()
+        registry.register(
+            make_spawn_tool(
+                provider=provider,
+                base_specs=base_specs,
+                approver=approver,
+                config=config,
+                max_depth=config.spawn_max_depth,
+            )
+        )
+
     telemetry = JsonlTelemetry(config.log_dir, config.model, verbose=verbose)
     agent = Agent(
         provider,
@@ -292,6 +309,73 @@ def run_improve(
     return 0
 
 
+def run_eval(
+    config: Config,
+    suite_path: str,
+    *,
+    judge_model: str | None = None,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Run an eval suite: agent answers each case, a judge scores it (Phase 5).
+
+    Returns 0 only if every case passes, so it doubles as a CI gate.
+    """
+    from agentkernel.evaluation import Evaluator, load_eval_suite
+
+    default_rubric, cases = load_eval_suite(suite_path)
+    if not cases:
+        output_fn("[no cases in suite]")
+        return 1
+
+    sandbox = make_sandbox(
+        config.sandbox, config.working_dir,
+        image=config.sandbox_image, network=config.sandbox_network,
+    )
+    base_agent, telemetry, mcp_clients = build_runtime(config, sandbox=sandbox)
+
+    def agent_factory() -> Agent:
+        context = ContextManager(
+            budget=base_agent.provider.context_window - config.output_reserve,
+            keep_recent_turns=config.keep_recent_turns,
+        )
+        return Agent(
+            base_agent.provider,
+            base_agent.registry,
+            context,
+            AutoApprover(config.approval_policy),  # non-interactive during eval
+            NullTelemetry(),
+            config,
+            context_source=base_agent.context_source,
+        )
+
+    judge_model = judge_model or config.judge_model
+    judge = (
+        make_provider(replace(config, model=judge_model))
+        if judge_model
+        else base_agent.provider
+    )
+    evaluator = Evaluator(
+        agent_factory, judge,
+        default_rubric=default_rubric, pass_threshold=config.eval_threshold,
+    )
+    try:
+        summary = evaluator.run_suite(cases)
+    finally:
+        telemetry.close()
+        for client in mcp_clients:
+            client.close()
+        sandbox.close()
+
+    for result in summary.results:
+        mark = "PASS" if result.passed else "FAIL"
+        output_fn(f"  [{mark}] {result.name}  score={result.score:.2f}  {result.reasoning}")
+    output_fn(
+        f"{summary.passed}/{summary.total} passed  "
+        f"pass_rate={summary.pass_rate:.0%}  mean_score={summary.mean_score:.2f}"
+    )
+    return 0 if summary.passed == summary.total else 1
+
+
 def _read_prompt_file(path: str) -> str:
     try:
         return Path(path).read_text(encoding="utf-8")
@@ -343,6 +427,13 @@ def main(argv: list[str] | None = None) -> int:
     improve_parser.add_argument(
         "--trace", help="trace file to analyze (default: latest in log_dir)"
     )
+    eval_parser = subparsers.add_parser(
+        "eval", help="run an eval suite and score the answers with a judge model"
+    )
+    eval_parser.add_argument("--suite", required=True, help="path to a TOML eval suite")
+    eval_parser.add_argument(
+        "--judge-model", help="model to score answers (default: config.judge_model)"
+    )
 
     args = parser.parse_args(argv)
     command = getattr(args, "command", None) or "repl"
@@ -356,6 +447,9 @@ def main(argv: list[str] | None = None) -> int:
     # runtime (no MCP servers, sandbox, or session trace file).
     if command == "improve":
         return run_improve(config, trace=getattr(args, "trace", None))
+
+    if command == "eval":
+        return run_eval(config, args.suite, judge_model=getattr(args, "judge_model", None))
 
     mcp_servers = load_mcp_servers(args.config)
     budget = BudgetGuard(

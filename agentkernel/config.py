@@ -47,6 +47,10 @@ class Config:
     enable_graph: bool = False  # register graph_add/graph_query tools (Phase 6)
     graph_path: str = ".agentkernel/graph.jsonl"  # Phase 6
     improvements_dir: str = ".agentkernel/improvements"  # Phase 7
+    enable_spawn: bool = False  # register the sub-agent `spawn` tool (design §13)
+    spawn_max_depth: int = 2  # recursion limit for nested spawn
+    judge_model: str | None = None  # model used to score evals; None -> `model`
+    eval_threshold: float = 0.6  # pass/fail score cutoff for evals
 
     @classmethod
     def load(
