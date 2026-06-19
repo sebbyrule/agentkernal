@@ -24,8 +24,11 @@ class Sandbox(Protocol):
     """Execution boundary for ``runs_code`` tools (design §10.3).
 
     ``run`` executes a command confined to ``cwd`` and returns
-    ``(exit_code, stdout, stderr)``. v1 ships ``LocalSandbox``; the target is a
-    container-per-project ``DockerSandbox`` swappable behind this protocol.
+    ``(exit_code, stdout, stderr)``. ``LocalSandbox`` confines to a subprocess;
+    ``DockerSandbox`` runs in a per-project container. ``close`` releases any
+    persistent resources (e.g. the container) and is a no-op for ``LocalSandbox``.
     """
 
     def run(self, command: str, *, cwd: str, timeout: int) -> tuple[int, str, str]: ...
+
+    def close(self) -> None: ...

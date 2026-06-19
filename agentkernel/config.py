@@ -30,6 +30,9 @@ class Config:
     max_tool_result_tokens: int = 4096
     approval_policy: str = "always_ask"  # always_ask | auto_allow | deny_mutations
     approval_allowlist: list[str] = field(default_factory=list)  # patterns that skip the gate
+    sandbox: str = "local"  # "local" | "docker" (design §10.3)
+    sandbox_image: str = "python:3.12-slim"  # image for the docker sandbox
+    sandbox_network: str = "none"  # docker container network ("none" | "bridge" | …)
     working_dir: str = "."
     summarizer_model: str | None = None  # cheap model for compaction; None -> structural
     log_dir: str = ".agentkernel/traces"

@@ -22,7 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from agentkernel.agent import Agent
-from agentkernel.approval import CliApprover, LocalSandbox
+from agentkernel.approval import CliApprover, Sandbox, make_sandbox
 from agentkernel.budget import BudgetGuard
 from agentkernel.config import Config
 from agentkernel.context import ContextManager, ModelSummarizer
@@ -53,16 +53,26 @@ def build_runtime(
     verbose: bool = False,
     budget: BudgetGuard | None = None,
     memory: MemoryStore | None = None,
+    sandbox: Sandbox | None = None,
 ) -> tuple[Agent, JsonlTelemetry, list[MCPClient]]:
     """Construct an Agent, its telemetry, and any MCP clients from config.
 
     Keys come from env. MCP-discovered tools register into the same registry as
     the builtins — the loop never learns they came from elsewhere (design §13).
+    Pass ``sandbox`` to own its lifecycle (e.g. close a DockerSandbox container);
+    otherwise one is built from config.
     """
     provider = make_provider(config)
+    if sandbox is None:
+        sandbox = make_sandbox(
+            config.sandbox,
+            config.working_dir,
+            image=config.sandbox_image,
+            network=config.sandbox_network,
+        )
     registry = ToolRegistry()
     for spec in default_tools(
-        LocalSandbox(),
+        sandbox,
         config.working_dir,
         max_result_tokens=config.max_tool_result_tokens,
     ):
@@ -358,6 +368,12 @@ def main(argv: list[str] | None = None) -> int:
     memory_dir = config.memory_dir or str(Path(config.log_dir).parent / "memory")
     memory = make_memory_store(memory_kind, memory_dir)
 
+    sandbox = make_sandbox(
+        config.sandbox,
+        config.working_dir,
+        image=config.sandbox_image,
+        network=config.sandbox_network,
+    )
     try:
         agent, telemetry, mcp_clients = build_runtime(
             config,
@@ -365,8 +381,10 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose_trace,
             budget=budget,
             memory=memory,
+            sandbox=sandbox,
         )
     except (ProviderError, MCPError) as exc:
+        sandbox.close()
         print(f"[startup error] {exc}")
         return 1
 
@@ -378,6 +396,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         print(f"[session trace: {telemetry.path}]")
+        if config.sandbox == "docker":
+            print(f"[sandbox: docker image={config.sandbox_image} network={config.sandbox_network}]")
         if memory_kind:
             print(f"[memory: {memory_kind} @ {memory_dir}]")
         if mcp_clients:
@@ -393,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         telemetry.close()
         for client in mcp_clients:
             client.close()
+        sandbox.close()
 
 
 if __name__ == "__main__":

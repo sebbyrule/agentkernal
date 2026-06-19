@@ -185,7 +185,10 @@ Per-message token accounting, a budget (`provider.context_window − output_rese
 
 ### Approval & sandbox ([`approval/`](agentkernel/approval))
 
-`Approver` implementations (`CliApprover`, `AutoApprover`) apply a shared policy. `LocalSandbox` runs shell commands as a subprocess confined to the working directory, with a scrubbed environment (secrets removed) and a **real** timeout that kills the whole process tree. A `DockerSandbox` is left as a swappable stub.
+`Approver` implementations (`CliApprover`, `AutoApprover`) apply a shared policy. Two execution boundaries sit behind the `Sandbox` protocol:
+
+- **`LocalSandbox`** (default) — a subprocess confined to the working directory, with a scrubbed environment and a **real** timeout that kills the whole process tree. Convenient, but cwd-scoped, not a security jail (a command using absolute paths can still reach the host).
+- **`DockerSandbox`** (`sandbox = "docker"`) — one long-lived container per project. The working directory is bind-mounted; by default there is **no network**, a separate filesystem, and bounded memory/CPU/PIDs, so a command can't reach the host or the network. The Docker CLI is driven through an injectable runner, so the argv/lifecycle are unit-tested without a daemon. Use this to run untrusted tasks.
 
 ### Telemetry ([`telemetry.py`](agentkernel/telemetry.py))
 

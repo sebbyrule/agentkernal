@@ -15,6 +15,13 @@ max_tool_result_tokens = 4096
 
 approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations
 working_dir = "."
+
+# Execution sandbox for bash/code (design §10.3).
+#   "local"  — subprocess confined to working_dir (cwd-scoped, not a jail)
+#   "docker" — one isolated container per project (no network, bounded resources)
+sandbox = "local"
+# sandbox_image = "python:3.12-slim"   # image for sandbox = "docker"
+# sandbox_network = "none"             # "none" | "bridge" | a named network
 # summarizer_model = "claude-haiku-4-5-20251001"   # cheap model for compaction (M2)
 log_dir = ".agentkernel/traces"
 
