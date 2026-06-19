@@ -1,0 +1,19 @@
+# agentkernel configuration (copy to agentkernel.toml).
+# Precedence: explicit args > AGENTKERNEL_* env vars > this file > defaults.
+# API keys are read ONLY from the environment (ANTHROPIC_API_KEY, OPENAI_API_KEY,
+# …) and must never be placed here.
+
+provider = "anthropic"            # "anthropic" | "openai" | "local"
+model = "claude-sonnet-4-6"
+# base_url = "http://localhost:11434/v1"   # for provider = "local"
+
+max_output_tokens = 4096
+output_reserve = 8192
+max_iterations = 25
+keep_recent_turns = 6
+max_tool_result_tokens = 4096
+
+approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations
+working_dir = "."
+# summarizer_model = "claude-haiku-4-5-20251001"   # cheap model for compaction (M2)
+log_dir = ".agentkernel/traces"

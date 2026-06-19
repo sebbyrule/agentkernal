@@ -1,0 +1,15 @@
+"""Context management: accounting and compaction (design §9)."""
+
+from agentkernel.context.manager import (
+    CompactionEvent,
+    ContextManager,
+    estimate_tokens,
+    structural_summary,
+)
+
+__all__ = [
+    "ContextManager",
+    "CompactionEvent",
+    "estimate_tokens",
+    "structural_summary",
+]

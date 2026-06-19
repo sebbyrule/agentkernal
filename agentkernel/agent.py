@@ -1,0 +1,133 @@
+"""The agent loop (design §7).
+
+This reads like the pseudocode in the design doc on purpose: no clever
+metaprogramming, no provider-specific branching. The loop sends the context
+window plus tools to the provider, executes any tool calls through the registry
+(gating mutations through the approver), and appends every result back, paired
+to its call id (design §8), until the model produces a final answer.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Optional
+
+from agentkernel.context.truncate import truncate_text
+from agentkernel.telemetry import ToolOutcome
+from agentkernel.types import Message, ToolResult
+
+if TYPE_CHECKING:
+    from agentkernel.approval import Approver
+    from agentkernel.config import Config
+    from agentkernel.context import ContextManager
+    from agentkernel.providers import Provider
+    from agentkernel.telemetry import Telemetry
+    from agentkernel.tools import ToolRegistry, ToolSpec
+
+
+class Agent:
+    """Orchestrates one conversation. All collaborators are injected (no global
+    state), so ``run`` is re-entrant: a tool handler may construct another Agent
+    and call ``run`` to spawn a sub-agent (design §7, §13)."""
+
+    def __init__(
+        self,
+        provider: "Provider",
+        registry: "ToolRegistry",
+        context: "ContextManager",
+        approver: "Approver",
+        telemetry: "Telemetry",
+        config: "Config",
+    ) -> None:
+        self.provider = provider
+        self.registry = registry
+        self.context = context
+        self.approver = approver
+        self.telemetry = telemetry
+        self.config = config
+
+    def run(self, user_input: str, *, profile: Optional[Any] = None) -> str:
+        """Drive the loop until a final answer or the max-iteration guard.
+
+        ``profile`` (design §13, Phase 5) is accepted but, in the kernel, only
+        ``tool_filter`` / ``system_prompt`` are honored if trivially present.
+        """
+        self.context.add(Message(role="user", content=user_input))
+
+        # Assemble the cacheable prefix ONCE per run and reuse the same objects
+        # every turn. Re-building or re-sorting these per turn would silently
+        # destroy prompt-cache hit-rate (design §9.3, AGENT.md rule 3).
+        tools = self._tools_for(profile)
+        system = self._system_for(profile)
+
+        for iteration in range(self.config.max_iterations):
+            messages = self.context.window()  # compacted to budget in M2
+
+            resp = self.provider.complete(
+                messages,
+                tools,
+                max_tokens=self.config.max_output_tokens,
+                system=system,
+            )
+            self.context.add(resp.message)
+            compaction = self.context.take_compaction()
+
+            if not resp.message.tool_calls:
+                self.telemetry.record_turn(iteration, resp, compaction=compaction)
+                return resp.message.content  # final answer
+
+            results: list[ToolResult] = []
+            outcomes: list[ToolOutcome] = []
+            for call in resp.message.tool_calls:  # may be >1 (parallel tool use)
+                err = self.registry.validate(call)
+                if err:
+                    results.append(ToolResult(call.id, err, is_error=True))
+                    outcomes.append(ToolOutcome(call.name, call.arguments, None, True))
+                    continue
+                spec = self.registry.spec(call.name)
+                if self._needs_approval(spec) and not self.approver.approve(call, spec):
+                    results.append(
+                        ToolResult(call.id, "Denied by user.", is_error=True)
+                    )
+                    outcomes.append(ToolOutcome(call.name, call.arguments, False, True))
+                    continue
+                result = self.registry.execute(call)
+                results.append(result)
+                outcomes.append(
+                    ToolOutcome(call.name, call.arguments, True, result.is_error)
+                )
+
+            # Cap every result before it enters context (design §8.4). This is
+            # the single truncation point for all tools — builtin and future
+            # ones — sharing the §9 mechanism. Structured `data` is left intact.
+            for r in results:
+                r.content = truncate_text(r.content, self.config.max_tool_result_tokens)
+
+            self.telemetry.record_turn(
+                iteration, resp, tool_outcomes=outcomes, compaction=compaction
+            )
+
+            # One tool-role message carries every result, paired to its call id.
+            # The adapter fans this out to the provider's shape (design §8.1).
+            self.context.add(Message(role="tool", tool_results=results))
+
+        return "Stopped: reached max iterations without a final answer."
+
+    # --- profile seams (design §13, Phase 5) -------------------------------
+
+    def _tools_for(self, profile: Optional[Any]) -> list["ToolSpec"]:
+        """The tool set for this run. Stable across turns to keep the prefix
+        cacheable (design §9.3): assembled from the registry's registration
+        order and not re-sorted."""
+        specs = self.registry.specs()
+        tool_filter = getattr(profile, "tool_filter", None)
+        if tool_filter:
+            allowed = set(tool_filter)
+            specs = [s for s in specs if s.name in allowed]
+        return specs
+
+    def _system_for(self, profile: Optional[Any]) -> Optional[str]:
+        return getattr(profile, "system_prompt", None)
+
+    @staticmethod
+    def _needs_approval(spec: Optional["ToolSpec"]) -> bool:
+        return bool(spec and spec.gated)
