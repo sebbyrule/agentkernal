@@ -4,7 +4,7 @@ Persistent build instructions for Claude Code. Read this before every task. The 
 
 ## Project
 
-**agentkernel** — a minimal, dependency-light kernel for a general-purpose AI agent. The kernel runs the agent loop (model → tool calls → results → repeat) and nothing more. The M0–M4 kernel is complete. Higher-level features (skills, knowledge graph, self-improvement) are later phases and remain out of scope unless the owner explicitly requests them.
+**agentkernel** — a minimal, dependency-light kernel for a general-purpose AI agent. The kernel runs the agent loop (model → tool calls → results → repeat) and nothing more. All planned Phase seams (MCP, skills, profiles, memory, knowledge graph, self-improvement) are now integrated behind clean extension interfaces.
 
 Build strictly to `agent-kernel-design.md`. If something is unspecified, follow the design principles below and leave a `# TODO(owner):` note rather than inventing scope.
 
@@ -45,8 +45,9 @@ Implement milestones **M0 → M4 in order** (design §16). Each is independently
 - **M3** — `bash`, `CliApprover`/`AutoApprover`, `LocalSandbox`, approval policies.
 - **M4** — JSONL telemetry, cost table, the REPL entry point.
 - **M5** (Phase 2/3/5 seams) — MCP client, `MemoryStore`, and `Profile` integration.
+- **M6** (Phase 4/6/7 seams) — Skills / AGENTS.md loading, knowledge-graph tools, and self-improvement reflection.
 
-MCP, memory, and profile seams are implemented. Do not begin any remaining out-of-scope phase (skills, knowledge graph, self-improvement) until the owner says so.
+All documented extension seams are implemented.
 
 ## Definition of done (every milestone)
 
@@ -69,7 +70,6 @@ Configuration loads from `agentkernel.toml` (+ `AGENTKERNEL_*` env overrides). A
 ## Do NOT
 
 - Do not add a web UI or any framework. CLI only; keep all logic UI-independent.
-- Do not implement skills, the knowledge graph, or self-improvement. Leave their §13 seams.
 - Do not hardcode provider-specific behavior in `agent.py`, `tools/`, or `context/`.
 - Do not let a tool failure raise out of the loop.
 - Do not log raw tool arguments, file contents, or secrets.

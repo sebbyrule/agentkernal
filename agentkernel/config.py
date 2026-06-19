@@ -39,6 +39,10 @@ class Config:
     profile_dir: str = "profiles"
     memory_store: str | None = None  # "file" | "memory" | None (Phase 3)
     memory_dir: str | None = None
+    skills_dir: str = "skills"  # Phase 4
+    skills: list[str] = field(default_factory=list)  # active skill names (Phase 4)
+    graph_path: str = ".agentkernel/graph.jsonl"  # Phase 6
+    improvements_dir: str = ".agentkernel/improvements"  # Phase 7
 
     @classmethod
     def load(

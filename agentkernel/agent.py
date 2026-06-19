@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from agentkernel.context import ContextManager
     from agentkernel.memory import MemoryStore
     from agentkernel.providers import Provider
+    from agentkernel.skills import ContextSource
     from agentkernel.telemetry import Telemetry
     from agentkernel.tools import ToolRegistry, ToolSpec
 
@@ -42,6 +43,7 @@ class Agent:
         config: Config,
         budget: BudgetGuard | None = None,
         memory: MemoryStore | None = None,
+        context_source: ContextSource | None = None,
     ) -> None:
         self.provider = provider
         self.registry = registry
@@ -51,6 +53,7 @@ class Agent:
         self.config = config
         self.budget = budget
         self.memory = memory
+        self.context_source = context_source
 
     def run(self, user_input: str, *, profile: Any | None = None) -> str:
         """Drive the loop until a final answer or the max-iteration guard.
@@ -165,7 +168,20 @@ class Agent:
         return specs
 
     def _system_for(self, profile: Any | None) -> str | None:
-        return getattr(profile, "system_prompt", None)
+        """Combine profile system prompt and active skill additions.
+
+        The cacheable prefix stays stable because tools and system Prompt are
+        assembled once per run.
+        """
+        parts: list[str] = []
+        profile_prompt = getattr(profile, "system_prompt", None)
+        if profile_prompt:
+            parts.append(profile_prompt)
+        if self.context_source is not None:
+            parts.extend(self.context_source.system_additions())
+        if not parts:
+            return None
+        return "\n\n".join(parts)
 
     @staticmethod
     def _needs_approval(spec: ToolSpec | None) -> bool:
