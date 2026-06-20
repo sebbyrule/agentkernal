@@ -16,6 +16,8 @@ separated so the loop can be tested offline with a scripted provider.
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import json
 import sys
 from collections.abc import Callable
 from dataclasses import replace
@@ -415,6 +417,8 @@ def run_eval(
     suite_path: str,
     *,
     judge_model: str | None = None,
+    output_path: str | None = None,
+    case_filter: list[str] | None = None,
     output_fn: Callable[[str], None] = print,
 ) -> int:
     """Run an eval suite: agent answers each case, a judge scores it (Phase 5).
@@ -428,6 +432,17 @@ def run_eval(
     if not cases:
         output_fn("[no cases in suite]")
         return 1
+
+    if case_filter:
+        case_filter = list(dict.fromkeys(case_filter))
+        cases = [
+            c
+            for c in cases
+            if any(fnmatch.fnmatchcase(c.name, pat) for pat in case_filter)
+        ]
+        if not cases:
+            output_fn(f"[no cases matched filter: {case_filter!r}]")
+            return 1
 
     sandbox = make_sandbox(
         config.sandbox, config.working_dir,
@@ -475,6 +490,11 @@ def run_eval(
         f"{summary.passed}/{summary.total} passed  "
         f"pass_rate={summary.pass_rate:.0%}  mean_score={summary.mean_score:.2f}"
     )
+    if output_path:
+        Path(output_path).write_text(
+            json.dumps(summary.to_dict(), indent=2), encoding="utf-8"
+        )
+        output_fn(f"[report written to {output_path}]")
     return 0 if summary.passed == summary.total else 1
 
 
@@ -625,6 +645,15 @@ def main(argv: list[str] | None = None) -> int:
     eval_parser.add_argument(
         "--judge-model", help="model to score answers (default: config.judge_model)"
     )
+    eval_parser.add_argument(
+        "--output", "-o", help="write a JSON evaluation report to this path"
+    )
+    eval_parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        help="run only matching case names/globs (repeatable)",
+    )
     loop_parser = subparsers.add_parser(
         "loop", help="run a repeatable workflow loop with a stopping condition"
     )
@@ -663,7 +692,13 @@ def main(argv: list[str] | None = None) -> int:
         return run_improve(config, trace=getattr(args, "trace", None))
 
     if command == "eval":
-        return run_eval(config, args.suite, judge_model=getattr(args, "judge_model", None))
+        return run_eval(
+            config,
+            args.suite,
+            judge_model=getattr(args, "judge_model", None),
+            output_path=getattr(args, "output", None),
+            case_filter=args.case or None,
+        )
 
     if command == "loop":
         return run_loop(

@@ -74,6 +74,25 @@ class EvalSummary:
     def mean_score(self) -> float:
         return sum(r.score for r in self.results) / self.total if self.total else 0.0
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "total": self.total,
+            "passed": self.passed,
+            "pass_rate": self.pass_rate,
+            "mean_score": self.mean_score,
+            "results": [
+                {
+                    "name": r.name,
+                    "answer": r.answer,
+                    "score": r.score,
+                    "passed": r.passed,
+                    "reasoning": r.reasoning,
+                    "raw_judge": r.raw_judge,
+                }
+                for r in self.results
+            ],
+        }
+
 
 def _parse_score(text: str, pass_threshold: float) -> tuple[float, bool, str]:
     """Extract ``(score 0-1, passed, reasoning)`` from a judge reply.

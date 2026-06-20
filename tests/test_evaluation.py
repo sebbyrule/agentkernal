@@ -104,3 +104,93 @@ def test_evaluator_uses_default_rubric_for_case_without_rubric():
     judge_prompt = judge.calls[-1][0].content
     assert "custom default rubric" in judge_prompt
 
+
+def test_eval_summary_to_dict_serializes_results():
+    from agentkernel.evaluation import EvalResult, EvalSummary
+
+    summary = EvalSummary(
+        [
+            EvalResult("a", "answer", 0.9, True, "good", '{"score": 90}'),
+            EvalResult("b", "bad", 0.2, False, "missing"),
+        ]
+    )
+    data = summary.to_dict()
+    assert data["total"] == 2
+    assert data["passed"] == 1
+    assert data["pass_rate"] == 0.5
+    assert data["results"][0]["name"] == "a"
+    assert data["results"][0]["raw_judge"] == '{"score": 90}'
+
+
+def test_run_eval_filters_cases_and_writes_report(tmp_path, monkeypatch):
+    from agentkernel.cli import run_eval
+    from agentkernel.config import Config
+    from agentkernel.tools import ToolRegistry
+
+    suite = tmp_path / "suite.toml"
+    suite.write_text(
+        'rubric = "default"\n'
+        "[[cases]]\n"
+        'name = "add"\n'
+        'prompt = "1+1"\n'
+        "[[cases]]\n"
+        'name = "mult"\n'
+        'prompt = "2*2"\n',
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "report.json"
+
+    agent_provider = FakeProvider([text_response("2"), text_response("4")])
+    judge_provider = FakeProvider(
+        [text_response('{"score": 100, "pass": true, "reasoning": "ok"}')]
+    )
+
+    class _FakeAgent:
+        provider = agent_provider
+        registry = ToolRegistry()
+        context_source = None
+
+        def run(self, prompt: str) -> str:
+            resp = agent_provider.complete([], [], max_tokens=10)
+            return resp.message.content
+
+    class _FakeTelemetry:
+        path = tmp_path / "trace.jsonl"
+
+        def close(self):
+            pass
+
+    import agentkernel.cli as cli_mod
+
+    monkeypatch.setattr(
+        cli_mod,
+        "build_runtime",
+        lambda config, **kw: (_FakeAgent(), _FakeTelemetry(), []),
+    )
+    monkeypatch.setattr(cli_mod, "make_provider", lambda config, **kw: judge_provider)
+    class _FakeSandbox:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli_mod, "make_sandbox", lambda *a, **k: _FakeSandbox())
+
+    out: list[str] = []
+    code = run_eval(
+        Config(
+            provider="fake",
+            judge_model="judge",
+            log_dir=str(tmp_path / "t"),
+        ),
+        str(suite),
+        case_filter=["add"],
+        output_path=str(report_path),
+        output_fn=out.append,
+    )
+    assert code == 0
+    assert report_path.exists()
+    import json
+
+    data = json.loads(report_path.read_text(encoding="utf-8"))
+    assert data["total"] == 1
+    assert data["results"][0]["name"] == "add"
+
