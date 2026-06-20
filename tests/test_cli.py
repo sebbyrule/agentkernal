@@ -9,6 +9,7 @@ from agentkernel.providers import ProviderError
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import ToolResult
 from tests.fakes import FakeProvider, text_response
+from agentkernel.skills import SkillLibrary
 
 
 class _ScriptedInput:
@@ -138,3 +139,25 @@ def test_repl_unknown_slash_command(agent_builder):
         output_fn=out.append,
     )
     assert any("unknown command" in line for line in out)
+
+
+def test_repl_slash_skill_toggles_active_skill(tmp_path, agent_builder):
+    provider = FakeProvider([text_response("ok")])
+    skill_dir = tmp_path / "skills"
+    skill_dir.mkdir()
+    (skill_dir / "terse").mkdir()
+    (skill_dir / "terse" / "SKILL.md").write_text(
+        "---\nname: terse\n---\nAlways answer in one word.", encoding="utf-8"
+    )
+    source = SkillLibrary(skill_dir)
+    agent = agent_builder(provider, context_source=source)
+    out: list[str] = []
+    repl(
+        agent,
+        input_fn=_ScriptedInput(["/skill terse", "go", "exit"]),
+        output_fn=out.append,
+    )
+    assert any("[skill terse: on]" in line for line in out)
+    # The next turn's system prompt included the pinned skill body.
+    assert provider.system_args and "Always answer in one word." in provider.system_args[-1]
+

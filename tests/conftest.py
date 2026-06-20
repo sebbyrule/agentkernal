@@ -13,7 +13,7 @@ from agentkernel.tools import ToolRegistry
 
 
 def build_agent(
-    provider, registry=None, *, config=None, approver=None, context=None, memory=None
+    provider, registry=None, *, config=None, approver=None, context=None, memory=None, context_source=None
 ) -> Agent:
     """Wire an Agent with default offline collaborators around ``provider``."""
     config = config or Config()
@@ -30,6 +30,7 @@ def build_agent(
         telemetry=NullTelemetry(),
         config=config,
         memory=memory,
+        context_source=context_source,
     )
 
 

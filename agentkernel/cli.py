@@ -592,6 +592,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=("file", "memory"),
         help="enable a built-in memory store (overrides config.memory_store)",
     )
+    parser.add_argument(
+        "--skill",
+        action="append",
+        default=[],
+        help="activate a skill for this session (repeatable)",
+    )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("repl", help="interactive REPL")
     run_parser = subparsers.add_parser("run", help="single non-interactive run")
@@ -628,6 +634,8 @@ def main(argv: list[str] | None = None) -> int:
         run_parser.error("the following arguments are required: prompt or --file")
 
     config = Config.load(args.config)
+    if args.skill:
+        config.skills = list(dict.fromkeys(config.skills + args.skill))
 
     # 'improve' is a self-contained tool: it needs only a provider, not the full
     # runtime (no MCP servers, sandbox, or session trace file).
