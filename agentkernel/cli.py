@@ -86,7 +86,9 @@ def build_runtime(
         max_result_tokens=config.max_tool_result_tokens,
     ):
         registry.register(spec)
-    mcp_clients = register_mcp_servers(registry, list(mcp_servers or []))
+    mcp_clients = register_mcp_servers(
+        registry, list(mcp_servers or []), log_dir=config.mcp_log_dir
+    )
 
     # Phase 6: expose the knowledge graph as ordinary tools when enabled.
     if config.enable_graph:
@@ -302,7 +304,14 @@ def _handle_slash(
             path = notes.export(dest)
             output_fn(f"[exported {len(notes.all())} notes to {path}]")
             return True
-        output_fn("usage: /memory [list [limit]|delete <note_id>|export [path]]")
+        if sub == "reindex":
+            if hasattr(notes, "reindex_embeddings"):
+                count = notes.reindex_embeddings()
+                output_fn(f"[reindexed {count} note(s)]")
+            else:
+                output_fn("(semantic search is not enabled for this notebook)")
+            return True
+        output_fn("usage: /memory [list [limit]|delete <note_id>|export [path]|reindex]")
         return True
 
     output_fn(f"[unknown command: /{cmd}]")

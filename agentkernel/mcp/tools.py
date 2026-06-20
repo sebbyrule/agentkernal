@@ -72,15 +72,20 @@ def mcp_tool_specs(client: MCPClient) -> list[ToolSpec]:
 
 
 def register_mcp_servers(
-    registry: ToolRegistry, servers: list[MCPServerConfig]
+    registry: ToolRegistry, servers: list[MCPServerConfig], log_dir: str | None = None
 ) -> list[MCPClient]:
     """Connect each server and register its tools. Returns the open clients so
     the caller can close them. On any failure, already-opened clients are
-    closed before the error propagates."""
+    closed before the error propagates.
+
+    ``log_dir`` optionally captures each server's stderr to
+    ``<log_dir>/<server-name>.log``."""
     clients: list[MCPClient] = []
     try:
         for server in servers:
-            client = MCPClient(server, timeout=server.timeout or 30.0).connect()
+            client = MCPClient(
+                server, timeout=server.timeout or 30.0, log_dir=log_dir
+            ).connect()
             clients.append(client)
             for spec in mcp_tool_specs(client):
                 registry.register(spec)

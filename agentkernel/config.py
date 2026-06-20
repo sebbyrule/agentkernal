@@ -37,6 +37,7 @@ class Config:
     working_dir: str = "."
     summarizer_model: str | None = None  # cheap model for compaction; None -> structural
     log_dir: str = ".agentkernel/traces"
+    mcp_log_dir: str = ".agentkernel/mcp-logs"  # per-server stderr logs
     max_cost_usd: float | None = None  # stop if cumulative cost exceeds this
     max_input_tokens_per_run: int | None = None  # stop if input tokens exceed this
     profile: str | None = None  # active profile name (Phase 5)

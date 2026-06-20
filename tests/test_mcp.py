@@ -148,3 +148,27 @@ def test_mcp_client_uses_config_timeout():
     client = MCPClient(cfg, timeout=cfg.timeout or 30.0)
     assert client._timeout == 12.0
     client.close()
+
+def test_mcp_stderr_logged(tmp_path):
+    log_dir = tmp_path / "mcp-logs"
+    cfg = MCPServerConfig(
+        name="noisy",
+        command=sys.executable,
+        args=[_SERVER],
+        env={"MCP_TEST_STDERR": "1"},
+    )
+    client = MCPClient(cfg, timeout=10.0, log_dir=str(log_dir)).connect()
+    try:
+        assert client.stderr_log_path is not None
+        log_path = Path(client.stderr_log_path)
+        assert log_path.name == "noisy.log"
+        # The reader thread may need a moment to flush the startup stderr line.
+        for _ in range(20):
+            text = log_path.read_text() if log_path.exists() else ""
+            if "fake-mcp stderr marker" in text:
+                break
+            import time
+            time.sleep(0.05)
+        assert "fake-mcp stderr marker" in log_path.read_text()
+    finally:
+        client.close()

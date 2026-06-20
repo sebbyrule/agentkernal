@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agentkernel.embeddings import EmbeddingError, OpenAIEmbeddingProvider
-from agentkernel.memory import SqliteNoteStore
+from agentkernel.memory import SqliteNoteStore, make_memory_tools
 from agentkernel.semantic_memory import SemanticSqliteNoteStore
 
 
@@ -39,11 +39,9 @@ class _FakeEmbeddingProvider:
         return result
 
 
-def _store(tmp_path: Path) -> SemanticSqliteNoteStore:
-    return SemanticSqliteNoteStore(
-        tmp_path / "semantic.db",
-        embedding_provider=_FakeEmbeddingProvider(),
-    )
+def _store(tmp_path: Path, path: Path | None = None) -> SemanticSqliteNoteStore:
+    target = path if path is not None else tmp_path / "semantic.db"
+    return SemanticSqliteNoteStore(target, embedding_provider=_FakeEmbeddingProvider())
 
 
 def test_semantic_search_ranks_by_similarity(tmp_path):
@@ -63,7 +61,7 @@ def test_reindex_embeddings_backfills_existing_notes(tmp_path):
     plain.add("dog fact")
     plain.close()
 
-    semantic = SemanticSqliteNoteStore(path, embedding_provider=_FakeEmbeddingProvider())
+    semantic = _store(tmp_path, path)
     assert semantic.reindex_embeddings() == 2
     results = semantic.search("kitten", limit=2)
     assert [n.text for n in results] == ["cat fact", "dog fact"]
@@ -96,6 +94,31 @@ def test_update_recomputes_embedding(tmp_path):
     store.update(note.note_id, "dog fact")
     results = store.search("puppy", limit=1)
     assert [n.text for n in results] == ["dog fact"]
+
+
+def test_reindex_memory_tool_registered_for_semantic_store(tmp_path):
+    store = _store(tmp_path)
+    tools = {t.name: t for t in make_memory_tools(store)}
+    assert "reindex_memory" in tools
+
+
+def test_reindex_memory_tool_absent_for_plain_store(tmp_path):
+    plain = SqliteNoteStore(tmp_path / "plain.db")
+    tools = {t.name: t for t in make_memory_tools(plain)}
+    assert "reindex_memory" not in tools
+
+
+def test_reindex_memory_tool_backfills_embeddings(tmp_path):
+    path = tmp_path / "promoted.db"
+    plain = SqliteNoteStore(path)
+    plain.add("cat fact")
+    plain.close()
+
+    store = _store(tmp_path, path)
+    tools = {t.name: t for t in make_memory_tools(store)}
+    result = tools["reindex_memory"].handler({})
+    assert result.is_error is False
+    assert "Reindexed 1 note(s)" in result.content
 
 
 def test_openai_provider_requires_endpoint_for_anthropic():

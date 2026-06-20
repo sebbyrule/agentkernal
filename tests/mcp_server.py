@@ -6,6 +6,7 @@ tools/call. No network — communication is over stdin/stdout only.
 """
 
 import json
+import os
 import sys
 
 
@@ -34,6 +35,8 @@ _TOOLS = [
 
 
 def main():
+    if os.environ.get("MCP_TEST_STDERR") == "1":
+        print("fake-mcp stderr marker", file=sys.stderr, flush=True)
     for line in sys.stdin:
         line = line.strip()
         if not line:

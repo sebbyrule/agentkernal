@@ -879,6 +879,28 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
                 )
             )
 
+    if hasattr(notes, "reindex_embeddings"):
+        def reindex_memory(arguments: dict) -> ToolResult:
+            count = notes.reindex_embeddings()
+            return ToolResult("", f"Reindexed {count} note(s) for semantic search.")
+
+        tools.append(
+            ToolSpec(
+                name="reindex_memory",
+                description=(
+                    "Recompute missing dense embeddings for semantic note recall. "
+                    "Use this after enabling semantic_search or restoring a notebook."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                handler=reindex_memory,
+                category="memory",
+            )
+        )
+
     return tools
 
 

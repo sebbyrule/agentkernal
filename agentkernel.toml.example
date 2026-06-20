@@ -26,6 +26,7 @@ sandbox = "local"
 # sandbox_network = "none"             # "none" | "bridge" | a named network
 # summarizer_model = "claude-haiku-4-5-20251001"   # cheap model for compaction (M2)
 log_dir = ".agentkernel/traces"
+# mcp_log_dir = ".agentkernel/mcp-logs"  # per-server stderr logs
 
 # Per-run guardrails (the run stops cleanly when a ceiling is exceeded).
 # max_cost_usd = 0.50
