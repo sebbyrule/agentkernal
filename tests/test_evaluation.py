@@ -87,3 +87,20 @@ def test_run_eval_empty_suite_returns_1(tmp_path):
         output_fn=out.append,
     )
     assert code == 1 and any("no cases" in line for line in out)
+
+
+def test_evaluator_uses_default_rubric_for_case_without_rubric():
+    agent_provider = FakeProvider([text_response("42")])
+    judge = FakeProvider(
+        [text_response('{"score": 100, "pass": true, "reasoning": "ok"}')]
+    )
+    evaluator = Evaluator(
+        lambda: build_agent(agent_provider),
+        judge,
+        default_rubric="custom default rubric",
+    )
+    summary = evaluator.run_suite([EvalCase("x", "what is it?")])
+    assert summary.passed == 1
+    judge_prompt = judge.calls[-1][0].content
+    assert "custom default rubric" in judge_prompt
+

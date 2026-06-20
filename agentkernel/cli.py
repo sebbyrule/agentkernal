@@ -424,6 +424,7 @@ def run_eval(
     from agentkernel.evaluation import Evaluator, load_eval_suite
 
     default_rubric, cases = load_eval_suite(suite_path)
+    effective_default = config.eval_rubric or default_rubric
     if not cases:
         output_fn("[no cases in suite]")
         return 1
@@ -457,7 +458,7 @@ def run_eval(
     )
     evaluator = Evaluator(
         agent_factory, judge,
-        default_rubric=default_rubric, pass_threshold=config.eval_threshold,
+        default_rubric=effective_default, pass_threshold=config.eval_threshold,
     )
     try:
         summary = evaluator.run_suite(cases)
@@ -592,6 +593,10 @@ def main(argv: list[str] | None = None) -> int:
         help="active profile name (overrides config.profile)",
     )
     parser.add_argument(
+        "--model",
+        help="model override for this session (overrides config.model and profile.model_override)",
+    )
+    parser.add_argument(
         "--memory",
         choices=("file", "memory"),
         help="enable a built-in memory store (overrides config.memory_store)",
@@ -640,6 +645,17 @@ def main(argv: list[str] | None = None) -> int:
     config = Config.load(args.config)
     if args.skill:
         config.skills = list(dict.fromkeys(config.skills + args.skill))
+    if args.model:
+        config.model = args.model
+
+    # Load profile early so its model_override and rubric feed into config for
+    # every command (run, repl, eval, loop, improve).
+    active_profile = _active_profile(config, args)
+    if active_profile is not None:
+        if not args.model and active_profile.model_override:
+            config.model = active_profile.model_override
+        if active_profile.rubric and config.eval_rubric is None:
+            config.eval_rubric = active_profile.rubric
 
     # 'improve' is a self-contained tool: it needs only a provider, not the full
     # runtime (no MCP servers, sandbox, or session trace file).
@@ -690,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[startup error] {exc}")
         return 1
 
-    profile = _active_profile(config, args)
+    profile = active_profile
 
     if not args.no_progress:
         telemetry = ProgressTelemetry(telemetry, output_fn=print)
