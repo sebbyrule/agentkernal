@@ -157,6 +157,24 @@ def test_agent_auto_context_disabled_by_default(agent_builder, tmp_path):
     assert user_messages[0].content == "pineapple pizza"
 
 
+def test_agent_auto_context_failure_does_not_crash_run(agent_builder):
+    """A failing recall (e.g. embedding endpoint down / missing key) must degrade
+    to the plain user input, not propagate out of run() and kill the session."""
+
+    class _BrokenNotes:
+        def search(self, query, *, limit=5):
+            raise RuntimeError("embedding endpoint unreachable")
+
+    config = Config(enable_memory_tools=True, memory_auto_context=True)
+    provider = FakeProvider([text_response("ok")])
+    agent = agent_builder(provider, config=config)
+    agent.notes = _BrokenNotes()
+    # Must not raise.
+    assert agent.run("hello there") == "ok"
+    user_messages = [m for m in provider.calls[0] if m.role == "user"]
+    assert user_messages[0].content == "hello there"  # unaugmented
+
+
 def test_agent_does_not_double_load_when_context_persists(agent_builder):
     store = InMemoryMemoryStore()
     store.save("s1", [Message(role="user", content="seed")])

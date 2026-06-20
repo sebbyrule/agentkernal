@@ -1,0 +1,36 @@
+# Eval suite for the builtin tools, run against the examples/playground project.
+#
+#   uv run agentkernel eval --suite examples/evals/builtin-tools.toml
+#   uv run agentkernel eval --suite examples/evals/builtin-tools.toml -o report.json
+#   uv run agentkernel eval --suite examples/evals/builtin-tools.toml --case "*todo*"
+#
+# Each case is run through the agent, then a judge model scores the answer
+# against the rubric. All cases here are read-only (find_files / search_text /
+# file_info / read_file), so they need no approvals and run unattended.
+
+rubric = "The answer is correct, specific, and grounded in the actual files — not guessed."
+
+[[cases]]
+name = "find-python-files"
+prompt = "How many Python files are in examples/playground, and what are their paths? Use your tools to check."
+rubric = "States there are 2 Python files and names both calc.py and inventory.py (paths under examples/playground)."
+
+[[cases]]
+name = "locate-todos"
+prompt = "Find every TODO under examples/playground and report the file and line number of each."
+rubric = "Reports the TODOs in inventory.py and NOTES.md with their file paths (and ideally line numbers); does not invent TODOs that aren't there."
+
+[[cases]]
+name = "spot-the-bug"
+prompt = "There is a bug in examples/playground/calc.py. Find it and quote the exact buggy line."
+rubric = "Identifies that subtract returns `a + b` instead of `a - b`, and quotes that line."
+
+[[cases]]
+name = "out-of-stock"
+prompt = "Using examples/playground/inventory.py, which SKUs are currently out of stock?"
+rubric = "Answers A-101 (the only item with qty 0)."
+
+[[cases]]
+name = "inventory-total"
+prompt = "Compute the total dollar value of the inventory defined in examples/playground/inventory.py. Show the arithmetic."
+rubric = "Arrives at $69.00 (12*2.50 + 0*9.99 + 3*1.25 + 47*0.75)."

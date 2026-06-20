@@ -200,7 +200,13 @@ class Agent:
         ):
             return user_input
         limit = getattr(self.config, "memory_auto_context_limit", 3)
-        notes = self.notes.search(user_input, limit=limit)
+        try:
+            notes = self.notes.search(user_input, limit=limit)
+        except Exception:  # noqa: BLE001 - best-effort recall must not crash the run
+            # Auto-context is a convenience layered before the loop. If recall
+            # fails (embedding endpoint down, API key missing, store error), fall
+            # back to the plain user input rather than taking down the session.
+            return user_input
         if not notes:
             return user_input
         lines = ["Relevant long-term memory:"]

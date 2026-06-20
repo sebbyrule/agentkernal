@@ -200,10 +200,14 @@ A `ToolSpec` carries a JSON-Schema parameter definition, a handler, and flags (`
 |---|---|
 | `read_file(path)` | read-only |
 | `list_dir(path)` | read-only |
+| `find_files(pattern, path?)` | read-only — glob search (`**/*.py`), skips noise dirs |
+| `search_text(pattern, glob?, …)` | read-only — regex grep → `path:line: text` |
+| `file_info(path)` | read-only — size / type / mtime / line count |
 | `write_file(path, content)` | mutates, requires approval |
+| `edit_file(path, old, new, replace_all?)` | mutates, requires approval — exact-substring replace |
 | `bash(command)` | runs code, mutates, requires approval |
 
-File tools confine paths to the working directory (rejecting `..` escapes and absolute paths outside the root); `bash` runs inside the sandbox boundary.
+File and search tools confine paths to the working directory (rejecting `..` escapes and absolute paths outside the root); `bash` runs inside the sandbox boundary. See [`examples/`](examples) for a playground project, ready-to-paste prompts, and a scored eval suite that exercise these tools.
 
 ### Context management ([`context/`](agentkernel/context))
 
