@@ -41,9 +41,14 @@ log_dir = ".agentkernel/traces"
 # memory_notes_path = ".agentkernel/memory/notes.jsonl"
 #                                     # use a .db extension for SQLite-backed notes
 # enable_memory_tools = false       # remember/recall/forget tools
-# memory_auto_context = false       # auto-inject relevant notes into user message
+# memory_auto_context = false       # auto-inject recalled notes into user message
 # memory_auto_context_limit = 3     # max notes per auto-recall
 # memory_store_budget = 4000        # summarize older turns before persisting
+
+# semantic_search = false            # rank note recall with dense embeddings (SQLite only)
+# embedding_model = "text-embedding-3-small"
+# embedding_base_url = "http://localhost:11434/v1"  # OpenAI-compatible endpoint
+# embedding_api_key_env = "OPENAI_API_KEY"
 
 # Skills (Phase 4): Anthropic-style SKILL.md skills discovered from skills_dir.
 # Each skill is a folder with a SKILL.md (YAML frontmatter: name, description;

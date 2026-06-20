@@ -43,11 +43,16 @@ class Config:
     profile_dir: str = "profiles"
     memory_store: str | None = None  # "file" | "sqlite" | "memory" | None (Phase 3)
     memory_dir: str | None = None
-    enable_memory_tools: bool = False  # register remember/recall tools (Phase 3)
+    enable_memory_tools: bool = False  # register remember/recall/forget tools (Phase 3)
     memory_notes_path: str = ".agentkernel/memory/notes.jsonl"  # the notebook file
     memory_auto_context: bool = False  # auto-inject recalled notes into user message
-    memory_auto_context_limit: int = 3  # max notes per auto-recall injection
+    memory_auto_context_limit: int = 3  # max notes per auto-recall
     memory_store_budget: int | None = None  # max tokens to persist per session
+    semantic_search: bool = False  # rank note recall with dense embeddings
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int | None = None  # optional truncation (OpenAI only)
+    embedding_base_url: str | None = None  # OpenAI-compatible endpoint
+    embedding_api_key_env: str = "OPENAI_API_KEY"  # env var holding API key
     skills_dir: str = "skills"  # Phase 4
     skills: list[str] = field(default_factory=list)  # active skill names (Phase 4)
     enable_graph: bool = False  # register graph_add/graph_query tools (Phase 6)

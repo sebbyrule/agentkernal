@@ -36,6 +36,8 @@ from agentkernel.memory import (
     make_memory_tools,
     make_note_store,
 )
+from agentkernel.embeddings import EmbeddingError, OpenAIEmbeddingProvider
+from agentkernel.semantic_memory import SemanticSqliteNoteStore
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.providers import ProviderError, make_provider
@@ -102,7 +104,18 @@ def build_runtime(
 
     notes: NoteStore | None = None
     if config.enable_memory_tools:
-        notes = make_note_store(config.memory_notes_path)
+        if config.semantic_search:
+            try:
+                emb_provider = OpenAIEmbeddingProvider.from_config(config)
+                notes_path = Path(config.memory_notes_path)
+                if notes_path.suffix.lower() not in (".db", ".sqlite", ".sqlite3"):
+                    notes_path = notes_path.parent / (notes_path.stem + ".semantic.db")
+                notes = SemanticSqliteNoteStore(notes_path, embedding_provider=emb_provider)
+            except EmbeddingError as exc:
+                print(f"Warning: semantic search disabled: {exc}", file=sys.stderr)
+                notes = make_note_store(config.memory_notes_path)
+        else:
+            notes = make_note_store(config.memory_notes_path)
         for spec in make_memory_tools(notes, store=memory):
             registry.register(spec)
 
