@@ -48,6 +48,8 @@ uv run agentkernel improve                    # reflect on the latest trace, wri
 uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
 uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report
 uv run agentkernel loop --file l.toml         # run a workflow loop until its stopping condition
+uv run agentkernel new skill my-skill         # scaffold a skill/profile/loop/eval from a template
+uv run agentkernel --profile reviewer run "review src/"  # run with a bundled profile
 uv run agentkernel --skill code-review repl   # start REPL with a skill pinned
 uv run agentkernel --model o3-mini run "hi"   # override the model for one run
 uv run agentkernel --help                     # options
@@ -282,11 +284,25 @@ agentkernel/
   subagent.py           # spawn tool: delegate to a child Agent
   evaluation.py         # eval harness: judge-scored runs
   loops.py              # loop-engineering runner (run-until-condition)
-  cli.py                # REPL + run/improve/eval/loop/tui entry points
+  cli.py                # REPL + run/improve/eval/loop/tui/new entry points
   tui/                  # curses interactive terminal UI (agentkernel tui)
-examples/skills/        # sample SKILL.md skill
+skills/                 # bundled starter skills (auto-discovered)
+profiles/               # bundled run profiles (reviewer, coder, researcher, …)
+loops/                  # bundled loop workflows (until-tests-pass, …)
+templates/              # annotated skeletons + `agentkernel new` scaffolding
+examples/               # playground project, eval suite, sample skill/loop
 tests/                  # offline suite (FakeProvider-driven)
 ```
+
+### Bundled content
+
+The skills, profiles, and loop machinery ships with a starter library so it's
+useful out of the box, plus templates to author your own:
+
+- **[`skills/`](skills)** — `code-review`, `debug-triage`, `write-tests`, `refactor`, `commit-and-pr`, `security-review`. Discovered automatically; pin one with `--skill <name>` or load on demand via `use_skill`.
+- **[`profiles/`](profiles)** — `reviewer` (read-only + rubric), `coder`, `researcher` (mutations denied), `planner` (plan-only), `safe` (minimal). Run with `--profile <name>`.
+- **[`loops/`](loops)** — `until-tests-pass`, `until-lint-clean`, `until-typecheck-clean`, `until-build-succeeds`, `review-and-fix`. Run with `loop --file loops/<name>.toml`.
+- **[`templates/`](templates)** — annotated skeletons for each, plus `agentkernel new skill|profile|loop|eval <name>` to scaffold a fresh one with the name filled in.
 
 ---
 

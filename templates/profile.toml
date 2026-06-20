@@ -1,0 +1,25 @@
+# Profile template — a named parameterization of one run.
+# Save as profiles/<name>.toml; the file name is the profile name.
+# Load with:  agentkernel --profile <name> run "..."
+#
+# A profile sets any of: system_prompt, tool_filter, model_override, rubric.
+# The kernel honors system_prompt and tool_filter every run; model_override and
+# rubric are used by the CLI and the eval harness. Every field is optional.
+
+# Prepended to the system prompt for this run. Use it to set role and constraints.
+system_prompt = """
+<Describe the role and any hard constraints, e.g. "read-only — do not modify
+files" or "produce a plan, do not act".>
+"""
+
+# Restrict which tools are available this run, by tool name. OMIT this line to
+# allow every registered tool. An empty list [] removes all tools (plan-only).
+# Read-only builtins: read_file, list_dir, find_files, search_text, file_info.
+# Mutating builtins:  write_file, edit_file, bash.
+tool_filter = ["read_file", "list_dir", "find_files", "search_text", "file_info"]
+
+# Optional: override the model just for runs using this profile.
+# model_override = "claude-haiku-4-5-20251001"
+
+# Optional: default rubric used by `agentkernel eval` when this profile is active.
+# rubric = "The answer is correct and complete."

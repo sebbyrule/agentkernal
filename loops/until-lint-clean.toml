@@ -1,0 +1,16 @@
+# Keep fixing until the linter reports no problems.
+# Run with:  agentkernel loop --file loops/until-lint-clean.toml
+# Adjust the command for your project's linter (eslint, flake8, golangci-lint, …).
+name = "until-lint-clean"
+description = "Resolve linter findings until the linter is clean."
+
+prompt = """
+Run the linter with `uvx ruff check .`. If it reports problems, read each one,
+fix the underlying issue in the code (do not suppress or ignore warnings to
+silence them), and stop. If it is already clean, say so.
+"""
+
+max_iterations = 5
+success_check = "uvx ruff check ."   # exit 0 => no findings
+success_streak = 1
+check_timeout = 120

@@ -1,0 +1,22 @@
+# MCP servers template — paste these blocks into your agentkernel.toml.
+#
+# Each [[mcp_servers]] entry launches an MCP server over stdio; its tools are
+# auto-discovered and registered into the same registry as the builtins, so the
+# model uses them like any other tool. Read-only tools (advertising readOnlyHint)
+# skip the approval gate; everything else is gated by default. Each server's
+# stderr goes to mcp_log_dir/<name>.log.
+
+[[mcp_servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+timeout = 30                       # per-request timeout in seconds
+
+[[mcp_servers]]
+name = "git"
+command = "uvx"
+args = ["mcp-server-git"]
+timeout = 30
+
+# On Windows, point `command` at the actual executable (e.g. "npx.cmd") since the
+# client launches the process directly without a shell.

@@ -1,0 +1,22 @@
+# Eval suite template — a set of scored tasks for the agent.
+# Run with:  agentkernel eval --suite <this-file>.toml
+#            agentkernel eval --suite <this-file>.toml -o report.json   # JSON report
+#            agentkernel eval --suite <this-file>.toml --case "*foo*"   # subset
+#
+# Each case runs through the agent; a judge model then scores the answer against
+# the rubric (0-1, pass/fail). The suite reports pass-rate and exits non-zero
+# unless every case passes, so it doubles as a CI gate.
+
+# Default rubric applied to any case that doesn't override it.
+rubric = "The answer is correct, specific, and grounded in the actual files — not guessed."
+
+[[cases]]
+name = "example-case"
+prompt = "<the task to give the agent>"
+# Optional per-case rubric; overrides the suite default above.
+rubric = "<what a correct answer must contain or do>"
+
+[[cases]]
+name = "another-case"
+prompt = "<another task>"
+# (no rubric here -> uses the suite default)

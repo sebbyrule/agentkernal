@@ -1,0 +1,21 @@
+# Review the current changes and fix what you find, repeating until clean.
+# Run with:  agentkernel loop --file loops/review-and-fix.toml
+#
+# Combines the code-review skill's mindset with a verification gate: each pass
+# reviews the diff, fixes real issues, and the success_check confirms the suite
+# and linter are green. success_streak = 2 requires two consecutive clean passes
+# so a fix in one round can't hide a regression in the next.
+name = "review-and-fix"
+description = "Review the working changes, fix issues, and repeat until tests and lint are clean."
+
+prompt = """
+Review the current uncommitted changes (`git diff`). Look for correctness bugs
+first, then clarity issues, then missing test coverage. Fix the real problems you
+find with the smallest correct changes, and run `uv run pytest -q` to verify.
+Report what you changed. If the diff is already clean and the suite passes, say so.
+"""
+
+max_iterations = 5
+success_check = "uv run pytest -q && uvx ruff check ."
+success_streak = 2
+check_timeout = 300

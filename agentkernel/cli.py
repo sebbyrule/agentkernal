@@ -388,6 +388,66 @@ def run_once(
     return 0
 
 
+# kind -> (template filename, destination path relative to project root).
+# {name} in the destination is filled with the asset name.
+_NEW_KINDS: dict[str, tuple[str, str]] = {
+    "skill": ("SKILL.md", "skills/{name}/SKILL.md"),
+    "profile": ("profile.toml", "profiles/{name}.toml"),
+    "loop": ("loop.toml", "loops/{name}.toml"),
+    "eval": ("eval-suite.toml", "evals/{name}.toml"),
+}
+
+
+def _find_templates_dir(start: Path | None = None) -> Path | None:
+    """Locate the project's templates/ directory by walking up from ``start``."""
+    here = (start or Path.cwd()).resolve()
+    for directory in (here, *here.parents):
+        candidate = directory / "templates"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def run_new(
+    kind: str,
+    name: str,
+    *,
+    force: bool = False,
+    templates_dir: Path | None = None,
+    project_root: Path | None = None,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Scaffold a skill/profile/loop/eval from a template (§18.8 roadmap)."""
+    if kind not in _NEW_KINDS:
+        output_fn(f"[unknown kind: {kind}] choose one of {', '.join(_NEW_KINDS)}")
+        return 1
+    if not name or any(sep in name for sep in ("/", "\\", "..")) or name.startswith("."):
+        output_fn(f"[invalid name: {name!r}] use a simple kebab-case name")
+        return 1
+
+    templates = templates_dir or _find_templates_dir()
+    if templates is None:
+        output_fn("[no templates/ directory found] run this inside an agentkernel project")
+        return 1
+    template_file, dest_pattern = _NEW_KINDS[kind]
+    template_path = templates / template_file
+    if not template_path.is_file():
+        output_fn(f"[template missing: {template_path}]")
+        return 1
+
+    root = project_root or templates.parent
+    dest = root / dest_pattern.format(name=name)
+    if dest.exists() and not force:
+        output_fn(f"[exists: {dest}] pass --force to overwrite")
+        return 1
+
+    content = template_path.read_text(encoding="utf-8").replace("{{name}}", name)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content, encoding="utf-8")
+    output_fn(f"[created {kind}: {dest}]")
+    return 0
+
+
 def run_improve(
     config: Config,
     *,
@@ -665,12 +725,26 @@ def main(argv: list[str] | None = None) -> int:
     loop_parser.add_argument(
         "--streak", type=int, help="consecutive successes required to stop"
     )
+    new_parser = subparsers.add_parser(
+        "new", help="scaffold a skill, profile, loop, or eval suite from a template"
+    )
+    new_parser.add_argument(
+        "kind", choices=("skill", "profile", "loop", "eval"), help="what to create"
+    )
+    new_parser.add_argument("name", help="name for the new asset (kebab-case)")
+    new_parser.add_argument(
+        "--force", action="store_true", help="overwrite if the target already exists"
+    )
 
     args = parser.parse_args(argv)
     command = getattr(args, "command", None) or "repl"
 
     if command == "run" and not args.prompt and not args.file:
         run_parser.error("the following arguments are required: prompt or --file")
+
+    # `new` scaffolds a file from a template; it needs no provider/config/runtime.
+    if command == "new":
+        return run_new(args.kind, args.name, force=args.force)
 
     config = Config.load(args.config)
     if args.skill:

@@ -1,0 +1,15 @@
+# Safe profile — minimal, locked-down toolset for untrusted or sensitive sessions.
+# Load with:  agentkernel --profile safe run "summarize README.md"
+#
+# Only the two lowest-risk read tools are exposed: no search, no write, no edit,
+# no bash. Use this when running against content you don't fully trust, or when
+# you want to be sure the agent cannot change anything or run commands.
+
+system_prompt = """
+You operate in a restricted, read-only mode with a minimal toolset: you can read
+a file and list a directory, nothing else. Answer using only what you can read.
+If a task would require writing, editing, searching broadly, or running commands,
+explain that it is outside this restricted mode rather than attempting it.
+"""
+
+tool_filter = ["read_file", "list_dir"]

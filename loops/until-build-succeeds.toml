@@ -1,0 +1,17 @@
+# Keep fixing until the project builds.
+# Run with:  agentkernel loop --file loops/until-build-succeeds.toml
+# Adjust the command for your build (uv build, npm run build, make, cargo build, …).
+name = "until-build-succeeds"
+description = "Fix build errors until the project builds cleanly."
+
+prompt = """
+Build the project with `uv build`. If the build fails, read the error output,
+find and fix the cause in the source or configuration, and stop. Address the
+actual failure — do not disable build steps to make it pass. If it already builds,
+say so.
+"""
+
+max_iterations = 5
+success_check = "uv build"
+success_streak = 1
+check_timeout = 300

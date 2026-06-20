@@ -629,7 +629,7 @@ within each group is rough priority. Nothing here is committed.
 | **Plugin discovery seam** | tool registration | Auto-import user tool modules from a `plugins/` dir (a top-level `register()` call), mirroring how MCP and builtins already register identically. |
 | **Shell completions** | CLI | `agentkernel completion bash`/`zsh`. Trivial DX polish. |
 
-### 18.8 Bundled content & templates (assets, not engine work)
+### 18.8 Bundled content & templates (assets, not engine work) — ✅ done
 
 The skills (§13, Phase 4) and profiles (§13, Phase 5) *machinery* is built and
 tested, but almost nothing ships through it: there is a single example skill
@@ -637,6 +637,15 @@ tested, but almost nothing ships through it: there is a single example skill
 in-code `default`), and no scaffolding for authoring more. The engine works; the
 library is empty. This group fills it. None of it touches the kernel — skills are
 context injections, profiles are run parameters, templates are inert files.
+
+**Status (implemented):** ships `skills/` (code-review, debug-triage, write-tests,
+refactor, commit-and-pr, security-review), `profiles/` (reviewer, researcher,
+coder, planner, safe), `loops/` (until-tests-pass, until-lint-clean,
+until-typecheck-clean, until-build-succeeds, review-and-fix), `templates/`
+(annotated skeletons for each + an MCP block + a tool module), and the
+`agentkernel new <skill|profile|loop|eval> <name>` scaffolding command. Each
+bundled asset is covered by a load test; the shareable-bundle-format row remains
+future work.
 
 | Idea | Seam | Notes |
 |---|---|---|

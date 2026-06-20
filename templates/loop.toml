@@ -1,0 +1,29 @@
+# Loop template — a workflow the agent repeats until a stopping condition.
+# Run with:  agentkernel loop --file loops/<name>.toml
+#
+# Pattern: action -> check -> iterate -> stop. Each iteration runs `prompt`
+# through a fresh agent; if `success_check` exits 0 it counts as a success, and
+# the loop stops once it sees `success_streak` successes in a row (or hits
+# max_iterations). Omit success_check to let the workflow itself decide when done.
+name = "{{name}}"
+description = "<one line describing what this loop accomplishes>"
+
+prompt = """
+<The instructions handed to the agent each iteration. Tell it what to do, how to
+make the smallest correct change, and to stop after acting. Write it so that
+repeating it converges — e.g. "fix the next failure", not "fix everything".>
+"""
+
+max_iterations = 5
+
+# Shell command run in the sandbox after each iteration; exit 0 == success.
+# Remove this line for a loop with no programmatic check.
+success_check = "<command that exits 0 when the work is done, e.g. 'uv run pytest -q'>"
+
+# How many consecutive successes are required to stop (2+ guards against a fix in
+# one round masking a regression in the next).
+success_streak = 1
+
+# Working directory for the success_check, and its timeout in seconds.
+cwd = "."
+check_timeout = 120

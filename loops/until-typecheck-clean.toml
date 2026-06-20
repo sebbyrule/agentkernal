@@ -1,0 +1,18 @@
+# Keep fixing until the type checker passes.
+# Run with:  agentkernel loop --file loops/until-typecheck-clean.toml
+# Adjust the command for your project (mypy, pyright, tsc, …).
+name = "until-typecheck-clean"
+description = "Resolve type errors until the type checker passes."
+
+prompt = """
+Run the type checker with `uv run mypy agentkernel`. If it reports errors, read
+each one and fix the real type problem in the code — add or correct annotations,
+handle the None case, narrow the type. Do not silence errors with broad `# type:
+ignore` or `Any` unless genuinely unavoidable (and explain why). If it already
+passes, say so.
+"""
+
+max_iterations = 6
+success_check = "uv run mypy agentkernel"
+success_streak = 1
+check_timeout = 180
