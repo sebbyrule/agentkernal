@@ -1,8 +1,8 @@
 """Tests for the TUI module (non-curses logic only).
 
 Curses rendering is inherently visual and platform-dependent; these tests
-cover the message buffer, text wrapping, input handling logic, and the
-clean entry-point error path.
+cover the message buffer, text wrapping, input handling logic, and the clean
+entry-point error path.
 """
 
 from __future__ import annotations
@@ -53,21 +53,30 @@ def test_wrap_text_unicode():
 # ── entry-point error path ──────────────────────────────────────────────────
 
 def test_run_tui_graceful_import_error(monkeypatch):
-    """When curses is unavailable, run_tui prints a helpful message and returns 1."""
-    monkeypatch.setitem(sys.modules, "curses", None)
-
-    # Remove curses from sys.modules so the import inside run_tui fails.
-    saved = sys.modules.pop("curses", None)
+    """run_tui returns 1 with a helpful message when curses is unavailable."""
     try:
-        from agentkernel.tui import run_tui
-        from agentkernel.config import Config
+        import curses  # noqa: F401 — probe availability
+        curses_available = True
+    except ImportError:
+        curses_available = False
 
-        # Simulate import failure
+    from agentkernel.tui import run_tui
+    from agentkernel.config import Config
+
+    if curses_available:
+        # Simulate unavailability by hiding the real module.
+        saved = sys.modules.pop("curses", None)
+        try:
+            sys.modules["curses"] = None
+            code = run_tui(Config())
+            assert code == 1
+        finally:
+            if saved is not None:
+                sys.modules["curses"] = saved
+    else:
+        # Already unavailable — just call through.
         code = run_tui(Config())
         assert code == 1
-    finally:
-        if saved is not None:
-            sys.modules["curses"] = saved
 
 
 def test_tui_module_exports_run_tui():

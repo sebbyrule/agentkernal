@@ -84,13 +84,17 @@ class TuiApp:
         self._stdscr = stdscr
         self._init_colors()
         self._c.curs_set(1)  # show cursor in input area
-        stdscr.nodelay(False)  # blocking reads
+        stdscr.timeout(80)   # 80 ms getch timeout → polls ~12 fps, no spin
 
         self._resize()
+        self._dirty = True    # force initial draw
 
         while self._running:
+            dirty = self._dirty
+            self._dirty = False
             self._poll_agent()
-            self._draw()
+            if dirty or self._dirty:
+                self._draw()
             self._handle_input()
 
         self._cleanup()
@@ -290,24 +294,23 @@ class TuiApp:
         if self._input_win is None:
             return
 
-        self._input_win.nodelay(True)
         try:
             key = self._input_win.getch()
         except Exception:
             return
 
         if key == -1:
-            return  # no input
+            return  # no input (timeout)
+
+        self._dirty = True  # something changed
 
         if key in _QUIT_KEYS:
             if self._agent_thread and self._agent_thread.is_alive():
-                self._status = "Agent is running. Press Esc again to force quit."
-                self._input_win.nodelay(False)
-                try:
-                    key2 = self._input_win.getch()
-                except Exception:
-                    key2 = -1
-                if key2 not in _QUIT_KEYS:
+                # Warn once, then allow quit on next Esc.
+                if not getattr(self, "_quit_warned", False):
+                    self._quit_warned = True
+                    self._status = "Agent is running. Press Esc again to force quit."
+                    self._dirty = True
                     return
             self._running = False
             return
@@ -371,6 +374,7 @@ class TuiApp:
         self._status = "Thinking..."
         self._spinner_idx = 0
 
+        self._quit_warned = False
         self._agent_thread = threading.Thread(target=self._run_agent, args=(text,), daemon=True)
         self._agent_thread.start()
 
@@ -403,6 +407,7 @@ class TuiApp:
                 self._status = "Ready"
 
             self._agent_thread = None
+            self._dirty = True
             self._agent_done.clear()
             self._scroll_offset = 999_999  # auto-scroll
 
