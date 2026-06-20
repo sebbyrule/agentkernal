@@ -22,6 +22,8 @@ approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations | s
 # enable_clarify = true               # let the agent ask you a question mid-run
 # enable_plugins = true               # auto-load tools from plugins_dir (runs their code!)
 # plugins_dir = "plugins"             # each *.py exposes tools() -> [ToolSpec] or TOOLS = [...]
+# enable_kanban = true                # shared work-board tool for multi-agent coordination
+# kanban_path = ".agentkernel/kanban.json"
 # plan_mode = false                   # batch-approve all tools at once
 working_dir = "."
 

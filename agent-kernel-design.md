@@ -596,7 +596,7 @@ within each group is rough priority. Nothing here is committed.
 | Idea | Seam | Notes |
 |---|---|---|
 | **Git worktree isolation for `spawn`** | sub-agent tool | When a spawned child edits code, run it in a throwaway `git worktree` so parallel children don't collide. Extends the existing depth-limited `spawn` (§13) — no new concept, just an isolation flag. |
-| **Work-queue (kanban-lite)** | tool + driver | A durable SQLite board of tasks that worker sub-agents claim, complete, or block. Lets a long mission fan out across many bounded runs. Heavier; only worthwhile once `spawn` + sessions land. |
+| **Work-queue (kanban-lite)** ✅ | tool + driver | **Done** (`kanban.py`, the `kanban` tool, `agentkernel kanban` CLI, `enable_kanban`). A durable JSON board of tasks with todo/in_progress/done/blocked states; the model (or spawned workers) file, claim (`next`), complete, block, and comment via one tool, and a CLI inspects/manages it. JSON whole-file writes — a SQLite board would be the next step for heavy contention. |
 
 ### 18.4 In-session tools (cheap, high-utility) — ✅ done
 

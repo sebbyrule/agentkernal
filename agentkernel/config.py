@@ -37,6 +37,8 @@ class Config:
     enable_plugins: bool = False  # auto-load tools from plugins_dir (§18.7)
     plugins_dir: str = "plugins"  # directory of plugin tool modules
     cron_path: str = ".agentkernel/cron.json"  # scheduled-job store (§18.2)
+    enable_kanban: bool = False  # register the `kanban` work-board tool (§18.3)
+    kanban_path: str = ".agentkernel/kanban.json"  # shared work-board store
     approval_allowlist: list[str] = field(default_factory=list)  # patterns that skip the gate
     plan_mode: bool = False              # batch-approve the whole tool plan at once
     sandbox: str = "local"  # "local" | "docker" (design §10.3)

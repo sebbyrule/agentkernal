@@ -111,6 +111,11 @@ def build_runtime(
         from agentkernel.tools.builtin.clarify import clarify_tool
 
         registry.register(clarify_tool())
+    if config.enable_kanban:
+        from agentkernel.kanban import Board
+        from agentkernel.tools.builtin.kanban_tool import kanban_tool
+
+        registry.register(kanban_tool(Board(config.kanban_path)))
 
     # Plugin tools (§18.7): user-authored tools auto-loaded from plugins_dir.
     if config.enable_plugins:
@@ -606,6 +611,60 @@ def run_background(
     return 0
 
 
+def run_kanban(
+    config: Config,
+    action: str,
+    rest: list[str],
+    *,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Inspect and manage the shared work board from the CLI (§18.3)."""
+    from agentkernel.kanban import Board, render_task
+
+    board = Board(config.kanban_path)
+
+    if action == "list":
+        tasks = board.list()
+        if not tasks:
+            output_fn("(board is empty)")
+            return 0
+        for t in tasks:
+            output_fn(f"  {render_task(t)}")
+        return 0
+    if action == "add":
+        if not rest:
+            output_fn('usage: agentkernel kanban add "<title>"')
+            return 1
+        task = board.add(" ".join(rest))
+        output_fn(f"[added {task.id}: {task.title}]")
+        return 0
+
+    if not rest:
+        output_fn(f"usage: agentkernel kanban {action} <task_id>")
+        return 1
+    task_id = rest[0]
+    if action == "show":
+        task = board.get(task_id)
+        if task is None:
+            output_fn(f"[no task {task_id}]")
+            return 1
+        output_fn(render_task(task))
+        for note in task.notes:
+            output_fn(f"    - {note}")
+        return 0
+    if action == "complete":
+        ok = board.complete(task_id) is not None
+    elif action == "block":
+        ok = board.block(task_id, " ".join(rest[1:])) is not None
+    else:  # remove
+        tasks = [t for t in board.list() if t.id != task_id]
+        ok = len(tasks) != len(board.list())
+        if ok:
+            board._write(tasks)
+    output_fn(f"[{action}d {task_id}]" if ok else f"[no task {task_id}]")
+    return 0 if ok else 1
+
+
 def _cron_run_one(config: Config, prompt: str) -> str:
     """Run one cron job's prompt through a fresh runtime and return the answer."""
     sandbox = make_sandbox(
@@ -1002,6 +1061,15 @@ def main(argv: list[str] | None = None) -> int:
         "rest", nargs="*",
         help="add: <schedule> <prompt...>; remove/run: <job_id>",
     )
+    kanban_parser = subparsers.add_parser(
+        "kanban", help="manage the shared work board (list/add/show/complete/remove)"
+    )
+    kanban_parser.add_argument(
+        "action", choices=("list", "add", "show", "complete", "block", "remove")
+    )
+    kanban_parser.add_argument(
+        "rest", nargs="*", help="add: <title...>; show/complete/block/remove: <task_id>"
+    )
     new_parser = subparsers.add_parser(
         "new", help="scaffold a skill, profile, loop, or eval suite from a template"
     )
@@ -1046,6 +1114,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_sessions(config, args.action, getattr(args, "session_id", None))
     if command == "cron":
         return run_cron(config, args.action, args.rest)
+    if command == "kanban":
+        return run_kanban(config, args.action, args.rest)
     if command == "run" and getattr(args, "background", False):
         prompt = _read_prompt_file(args.file) if args.file else (args.prompt or "")
         return run_background(prompt, config_path=args.config, log_dir=config.log_dir)

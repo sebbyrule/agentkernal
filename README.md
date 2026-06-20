@@ -57,6 +57,8 @@ uv run agentkernel sessions list              # list saved sessions (needs a mem
 uv run agentkernel --resume <id> run "..."    # resume a saved session by id
 uv run agentkernel cron add 1h "check CI"     # schedule a job; `cron tick` runs what's due
 uv run agentkernel cron tick                  # run all due jobs once (drive from OS scheduler)
+uv run agentkernel kanban add "ship release"  # file a task on the shared work board
+uv run agentkernel kanban list                # inspect the work board
 uv run agentkernel new skill my-skill         # scaffold a skill/profile/loop/eval from a template
 uv run agentkernel --profile reviewer run "review src/"  # run with a bundled profile
 uv run agentkernel --skill code-review repl   # start REPL with a skill pinned
@@ -137,6 +139,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `checkpoints` | `False` | back up files before edits and register a `rollback` tool to undo them |
 | `enable_todo` / `enable_clarify` | `False` | register the in-session `todo` planning tool / the `clarify` ask-the-user tool |
 | `enable_plugins` / `plugins_dir` | `False` / `plugins` | auto-load user tool modules from `plugins_dir` (executes their code) |
+| `enable_kanban` / `kanban_path` | `False` / `.agentkernel/kanban.json` | register the `kanban` shared work-board tool for multi-agent coordination |
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |
 | `log_dir` | `.agentkernel/traces` | where session traces are written |
