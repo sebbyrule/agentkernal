@@ -32,22 +32,25 @@ uv sync --extra dev      # install runtime + dev (pytest) dependencies
 API keys are read **only** from the environment — never from config files or traces:
 
 ```bash
-export ANTHROPIC_API_KEY=...     # for provider = "anthropic"
-export OPENAI_API_KEY=...        # for provider = "openai"
+export ANTHROPIC_API_KEY=***     # for provider = "anthropic"
+export OPENAI_API_KEY=***        # for provider = "openai" / embeddings
 # local/OpenAI-compatible endpoints (Ollama, vLLM) usually need no key
 ```
 
 ## Quick start
 
 ```bash
-uv run agentkernel                      # interactive REPL (default)
-uv run agentkernel run "your prompt"    # single non-interactive run, prints the answer
-uv run agentkernel run --file task.md   # single run from a prompt file
-uv run agentkernel improve              # reflect on the latest trace, write a rule note
-uv run agentkernel eval --suite s.toml  # run an eval suite, score answers with a judge
-uv run agentkernel loop --file l.toml   # run a workflow loop until its stopping condition
-uv run agentkernel --help               # options
-uv run pytest                           # full test suite, offline
+uv run agentkernel                            # interactive REPL (default)
+uv run agentkernel run "your prompt"          # single non-interactive run, prints the answer
+uv run agentkernel run --file task.md         # single run from a prompt file
+uv run agentkernel improve                    # reflect on the latest trace, write a rule note
+uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
+uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report
+uv run agentkernel loop --file l.toml         # run a workflow loop until its stopping condition
+uv run agentkernel --skill code-review repl   # start REPL with a skill pinned
+uv run agentkernel --model o3-mini run "hi"   # override the model for one run
+uv run agentkernel --help                     # options
+uv run pytest                                 # full test suite, offline
 ```
 
 The REPL keeps conversational context across messages, prints a one-line progress
@@ -57,7 +60,7 @@ status per turn, and writes a per-session JSONL trace. It supports slash command
 $ uv run agentkernel
 [session trace: .agentkernel/traces/<session-id>.jsonl]
 agentkernel REPL - type your message and press enter. Commands: /exit, /clear,
-/system, /profile, /skills, /skill, /tools, /trace, /cost.
+/system, /profile, /skills, /skill, /tools, /trace, /cost, /memory, /improve.
 > summarize the files in this directory
 ```
 
@@ -70,6 +73,8 @@ agentkernel REPL - type your message and press enter. Commands: /exit, /clear,
 | `/skill <name>` | toggle a skill on/off |
 | `/tools` | list registered tools (builtin + MCP + graph) |
 | `/trace` / `/cost` | show the trace path / cumulative session cost |
+| `/memory [list [limit] \| delete <note_id> \| export [path] \| reindex]` | manage the notebook |
+| `/improve [trace-path]` | reflect on the current (or chosen) trace and write an improvement |
 | `/exit` | leave |
 
 ### Using the kernel as a library
@@ -88,7 +93,7 @@ finally:
         client.close()
 ```
 
-`build_runtime` wires a provider, the builtin tools inside a `LocalSandbox`, a `CliApprover`, JSONL telemetry, and any configured MCP servers / skills / knowledge-graph tools into an `Agent`. You can also assemble these yourself — every collaborator is injected, nothing is global.
+`build_runtime` wires a provider, the builtin tools inside a `LocalSandbox`, a `CliApprover`, JSONL telemetry, and any configured MCP servers / skills / knowledge-graph / memory tools into an `Agent`. You can also assemble these yourself — every collaborator is injected, nothing is global.
 
 ---
 
@@ -97,6 +102,7 @@ finally:
 Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](agentkernel.toml.example)) with this precedence:
 
 > explicit constructor args **>** `AGENTKERNEL_*` environment variables **>** `agentkernel.toml` **>** defaults
+> CLI flags (`--model`, `--profile`, `--skill`, `--memory`) override the file.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -116,15 +122,25 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `max_cost_usd` | `None` | per-run cost ceiling; the run stops when exceeded |
 | `max_input_tokens_per_run` | `None` | per-run input-token ceiling |
 | `profile` / `profile_dir` | `None` / `profiles` | active profile name and where profiles are loaded from |
-| `memory_store` / `memory_dir` | `None` / `None` | `file` or `memory` store, and its directory |
+| `memory_store` / `memory_notes_path` | `None` / `.agentkernel/memory/notes.jsonl` | `file` \| `memory` \| `sqlite`; notebook directory/path |
+| `enable_memory_tools` | `False` | register `remember`/`recall`/`forget` tools |
+| `memory_auto_context` / `memory_auto_context_limit` | `False` / `3` | auto-inject recalled notes before each user message |
+| `memory_store_budget` | `None` | summarize older turns before persisting memory |
+| `semantic_search` | `False` | rank note recall with dense embeddings (SQLite only) |
+| `semantic_search_lsh_bits` | `None` | approximate vector index bits; omit for brute force |
+| `embedding_model` | `text-embedding-3-small` | OpenAI-compatible embedding model |
+| `embedding_dimensions` | `None` | optional truncation (OpenAI only) |
+| `embedding_base_url` | `None` | OpenAI-compatible embedding endpoint |
+| `embedding_api_key_env` | `OPENAI_API_KEY` | env var holding the embedding API key |
 | `skills_dir` / `skills` | `skills` / `[]` | skill source directory and the initially-active skill names |
-| `enable_graph` / `graph_path` | `False` / `.agentkernel/graph.jsonl` | register `graph_add`/`graph_query` tools backed by this file |
+| `enable_graph` / `graph_path` | `False` / `.agentkernel/graph.jsonl` | register `graph_*` tools backed by this file |
+| `mcp_log_dir` | `mcp_logs/` | one stderr log file per configured MCP server |
 | `improvements_dir` | `.agentkernel/improvements` | where `improve` writes reflection notes |
 | `sandbox` / `sandbox_image` / `sandbox_network` | `local` / `python:3.12-slim` / `none` | execution boundary: `local` or `docker`, plus the container image and network |
 | `enable_spawn` / `spawn_max_depth` | `False` / `2` | register the `spawn` sub-agent tool and bound its recursion |
-| `judge_model` / `eval_threshold` | `None` / `0.6` | model that scores evals (defaults to `model`) and the pass cutoff |
+| `judge_model` / `eval_threshold` / `eval_rubric` | `None` / `0.6` / `None` | model that scores evals (defaults to `model`), the pass cutoff, and a default rubric |
 
-MCP servers are declared separately as `[[mcp_servers]]` tables (see [MCP](#mcp-mcp) below).
+MCP servers are declared separately as `[[mcp_servers]]` tables (see [MCP](#mcp-mcp) below). Each server supports an optional `timeout` (request seconds) and emits its stderr to `mcp_log_dir/<name>.log`.
 
 ---
 
@@ -203,13 +219,14 @@ One JSONL file per session. Each turn records tokens (input/output/cache), estim
 
 A hand-written [Model Context Protocol](https://modelcontextprotocol.io) client (JSON-RPC 2.0 over stdio — no SDK dependency) connects to MCP servers, discovers their tools, and registers each as an ordinary `ToolSpec`. The registry and loop are **completely unchanged** — an MCP-backed tool and a native builtin register identically. Read-only tools (advertising `readOnlyHint`) skip the approval gate; everything else is gated by default. A transport or protocol fault becomes an error result, never a raise.
 
-Declare servers in `agentkernel.toml`:
+Each server gets its own stderr log file under `mcp_log_dir` for easy debugging, and an optional `timeout` controls per-request patience:
 
 ```toml
 [[mcp_servers]]
 name = "filesystem"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+timeout = 30
 ```
 
 On Windows, point `command` at the actual executable (e.g. `npx.cmd`) since the client launches the process directly without a shell.
@@ -218,15 +235,15 @@ On Windows, point `command` at the actual executable (e.g. `npx.cmd`) since the 
 
 These are implemented on top of the kernel using the three primitives — a tool, a context injection, or a run parameter — never by changing the loop:
 
-- **Profiles** ([`profiles.py`](agentkernel/profiles.py)) — a run parameter `(system_prompt, tool_filter, model_override, rubric)` loaded from `profiles/<name>.toml`. The loop honors `system_prompt` and `tool_filter`.
-- **Skills** ([`skills.py`](agentkernel/skills.py)) — [Anthropic-style](https://github.com/anthropics/skills) `SKILL.md` folders (YAML frontmatter `name`/`description` + body + bundled files) discovered from `skills_dir`, with **progressive disclosure**: only a name+description catalog sits in the (stable, assembled-once) prefix; the model loads a skill's full body + file listing on demand via the `use_skill` tool. A skill can also be *pinned* (`skills = [...]` or `/skill`) to force its body into the prefix. Loose `.md`/`.toml` skills still work.
+- **Profiles** ([`profiles.py`](agentkernel/profiles.py)) — a run parameter `(system_prompt, tool_filter, model_override, rubric)` loaded from `profiles/<name>.toml`. The loop honors `system_prompt` and `tool_filter`; CLI `--profile` sets the active profile, and a profile's `model_override` or `rubric` override the defaults.
+- **Skills** ([`skills.py`](agentkernel/skills.py)) — [Anthropic-style](https://github.com/anthropics/skills) `SKILL.md` folders (YAML frontmatter `name`/`description` + body + bundled files) discovered from `skills_dir`, with **progressive disclosure**: only a name+description catalog sits in the (stable, assembled-once) prefix; the model loads a skill's full body + file listing on demand via the `use_skill` tool. A skill can also be *pinned* (`skills = [...]`, `--skill <name>`, or `/skill <name>`) to force its body into the prefix. Loose `.md`/`.toml` skills still work.
+- **Memory** ([`memory.py`](agentkernel/memory.py), [`semantic_memory.py`](agentkernel/semantic_memory.py)) — a `MemoryStore` loaded before a run and saved after; ships with in-memory, JSONL, and SQLite/FTS5 stores. Enable with `memory_store`. The SQLite notebook supports optional `semantic_search` via an OpenAI-compatible embedding endpoint, cosine-ranked recall, and a standard-library-only approximate LSH index (`semantic_search_lsh_bits`) for large notebooks. The `reindex_memory` tool backfills embeddings when a notebook is promoted to semantic recall.
+- **Knowledge graph** ([`knowledge.py`](agentkernel/knowledge.py)) — a file-backed triple store exposed purely as `graph_add`, `graph_query`, `graph_neighbors`, `graph_path`, and `graph_stats` tools (`enable_graph = true`). The kernel keeps no graph state.
 - **Loops** ([`loops.py`](agentkernel/loops.py)) — [loop-engineering](https://signals.forwardfuture.ai/loop-library/) workflows: `agentkernel loop` re-runs the agent on a loop's prompt until a stopping condition (a success shell-check and/or an N-in-a-row streak), following **action → check → iterate → stop**. Loops load from TOML or from a skill body (`--skill`), and the success check runs in the sandbox so a loop can verify its own work (e.g. "fix until `pytest` is green").
-- **Memory** ([`memory.py`](agentkernel/memory.py)) — a `MemoryStore` loaded before a run and saved after; ships in-memory and JSONL-file stores. Enable with `memory_store`.
-- **Knowledge graph** ([`knowledge.py`](agentkernel/knowledge.py)) — a file-backed triple store exposed purely as `graph_add`/`graph_query` tools (`enable_graph = true`). The kernel keeps no graph state.
-- **Self-improvement** ([`improvement.py`](agentkernel/improvement.py)) — `agentkernel improve` reads a session trace and asks the model for one concrete rule, written to `improvements_dir`. This is why telemetry exists from turn one.
-- **Budget guard** ([`budget.py`](agentkernel/budget.py)) — per-run cost/token ceilings (`max_cost_usd`, `max_input_tokens_per_run`) that stop a run cleanly.
+- **Self-improvement** ([`improvement.py`](agentkernel/improvement.py)) — `agentkernel improve` or the REPL's `/improve` reads a session trace and asks the model for one concrete rule, written to `improvements_dir`. This is why telemetry exists from turn one.
 - **Sub-agents** ([`subagent.py`](agentkernel/subagent.py)) — `enable_spawn = true` registers a `spawn` tool so the model can delegate a self-contained subtask to a focused child `Agent` (own context, optional system prompt and tool subset), depth-limited by `spawn_max_depth`. Built on the loop's re-entrancy; no loop change.
-- **Evaluators** ([`evaluation.py`](agentkernel/evaluation.py)) — `agentkernel eval --suite suite.toml` runs each case through the agent, then a judge model scores the answer against a rubric (0–1, pass/fail). Aggregates to pass-rate and mean score; exits non-zero unless every case passes, so it doubles as a CI gate and a way to compare models.
+- **Evaluators** ([`evaluation.py`](agentkernel/evaluation.py)) — `agentkernel eval --suite suite.toml` runs each case through the agent, then a judge model scores the answer against a rubric (0–1, pass/fail). Use `--case <glob>` to filter cases and `--output/-o report.json` to write a machine-readable report. Aggregates to pass-rate and mean score; exits non-zero unless every case passes, so it doubles as a CI gate and a way to compare models.
+- **Budget guard** ([`budget.py`](agentkernel/budget.py)) — per-run cost/token ceilings (`max_cost_usd`, `max_input_tokens_per_run`) that stop a run cleanly.
 
 ---
 
@@ -246,15 +263,18 @@ agentkernel/
   budget.py             # per-run cost/token guard
   progress.py           # per-turn REPL status lines
   profiles.py           # run-parameter profiles (Phase 5)
-  skills.py             # system-prompt fragments via ContextSource (Phase 4)
-  memory.py             # pre/post-run MemoryStore (Phase 3)
+  skills.py             # Anthropic-style SKILL.md skills (progressive disclosure)
+  memory.py             # pre/post-run MemoryStore and notebook backends (Phase 3)
+  semantic_memory.py    # dense embeddings + cosine-ranked recall over SQLite
+  semantic_index.py     # standard-library LSH approximate vector index
+  embeddings.py         # OpenAI-compatible embedding provider protocol
   knowledge.py          # triple store exposed as tools (Phase 6)
   improvement.py        # trace -> improvement rule (Phase 7)
-  skills.py             # Anthropic-style SKILL.md skills (progressive disclosure)
   subagent.py           # spawn tool: delegate to a child Agent
   evaluation.py         # eval harness: judge-scored runs
   loops.py              # loop-engineering runner (run-until-condition)
   cli.py                # REPL + run/improve/eval/loop entry points
+examples/skills/        # sample SKILL.md skill
 tests/                  # offline suite (FakeProvider-driven)
 ```
 
@@ -277,7 +297,7 @@ The kernel proves its design by adding every capability through one of three pri
 - **MCP** — an MCP client registers each remote tool as a `ToolSpec` (a tool).
 - **Knowledge graph** — `graph_add`/`graph_query` are ordinary registered tools.
 - **Skills** — a `ContextSource` contributes system-prompt text (a context injection).
-- **Memory** — pre-run load and post-run save hooks around `run` (context injection).
+- **Memory** — pre-run load and post-run save hooks around `run`, plus optional recall injected before each user message (context injection).
 - **Profiles** — `run()` accepts a `profile` parameter (a run parameter).
 - **Sub-agents** — the `spawn` tool builds a child `Agent` from inside a handler (a tool, on top of re-entrancy).
 - **Self-improvement** — reads the telemetry the kernel has emitted since turn one.
