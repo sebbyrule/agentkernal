@@ -46,6 +46,7 @@ class Config:
     memory_notes_path: str = ".agentkernel/memory/notes.jsonl"  # the notebook file
     memory_auto_context: bool = False  # auto-inject recalled notes into user message
     memory_auto_context_limit: int = 3  # max notes per auto-recall injection
+    memory_store_budget: int | None = None  # max tokens to persist per session
     skills_dir: str = "skills"  # Phase 4
     skills: list[str] = field(default_factory=list)  # active skill names (Phase 4)
     enable_graph: bool = False  # register graph_add/graph_query tools (Phase 6)

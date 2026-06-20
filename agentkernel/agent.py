@@ -13,6 +13,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from agentkernel.budget import BudgetGuard
+from agentkernel.context import ContextManager
 from agentkernel.context.truncate import truncate_text
 from agentkernel.telemetry import ToolOutcome
 from agentkernel.types import Message, ToolResult
@@ -20,7 +21,6 @@ from agentkernel.types import Message, ToolResult
 if TYPE_CHECKING:
     from agentkernel.approval import Approver
     from agentkernel.config import Config
-    from agentkernel.context import ContextManager
     from agentkernel.memory import MemoryStore, NoteStore
     from agentkernel.providers import Provider
     from agentkernel.skills import ContextSource
@@ -156,7 +156,23 @@ class Agent:
 
     def _persist_memory(self, session_id: str) -> None:
         if self.memory is not None:
-            self.memory.save(session_id, self.context.messages())
+            self.memory.save(session_id, self._messages_for_storage())
+
+    def _messages_for_storage(self) -> list[Message]:
+        """Return the conversation, compacted if a persistence budget is set.
+
+        This applies the same deterministic compaction the main context uses,
+        but with a separate ``memory_store_budget`` tuned for on-disk recall.
+        Keeping only a summary plus recent turns keeps the store lightweight.
+        """
+        messages = self.context.messages()
+        budget = getattr(self.config, "memory_store_budget", None)
+        if budget is None or budget <= 0:
+            return messages
+        cm = ContextManager(budget=budget)
+        for m in messages:
+            cm.add(m)
+        return cm.window()
 
     def _prepare_user_message(self, user_input: str) -> str:
         """Augment the user input with relevant long-term memory when configured.

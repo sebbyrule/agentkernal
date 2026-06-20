@@ -41,6 +41,7 @@ log_dir = ".agentkernel/traces"
 # enable_memory_tools = false       # remember/recall/forget tools
 # memory_auto_context = false       # auto-inject relevant notes into each user message
 # memory_auto_context_limit = 3     # max notes per auto-recall
+# memory_store_budget = 4000        # summarize older turns before persisting
 
 # Skills (Phase 4): Anthropic-style SKILL.md skills discovered from skills_dir.
 # Each skill is a folder with a SKILL.md (YAML frontmatter: name, description;

@@ -501,3 +501,30 @@ def test_make_note_store_selects_backend_by_extension(tmp_path):
     assert isinstance(db_store, SqliteNoteStore)
     jsonl_store = make_note_store(tmp_path / "foo.jsonl")
     assert isinstance(jsonl_store, MemoryNotes)
+
+
+def test_agent_compacts_memory_before_save_with_store_budget(agent_builder):
+    store = InMemoryMemoryStore()
+    long_answer = "answer " * 100
+    provider = FakeProvider([text_response(long_answer)] * 7)
+    config = Config(memory_store_budget=50, max_iterations=1)
+    agent = agent_builder(provider, memory=store, config=config)
+    for i in range(7):
+        agent.run(f"prompt {i}")
+    session_ids = store.list_sessions()
+    assert len(session_ids) == 1
+    saved = store.load(session_ids[0])
+    assert len(saved) < 14  # compacted from 14 raw messages
+    assert any("Earlier in this session" in (m.content or "") for m in saved)
+
+
+def test_agent_preserves_all_messages_without_store_budget(agent_builder):
+    store = InMemoryMemoryStore()
+    provider = FakeProvider([text_response("ok")] * 3)
+    config = Config()  # memory_store_budget is None by default
+    agent = agent_builder(provider, memory=store, config=config)
+    for i in range(3):
+        agent.run(f"question {i}")
+    session_ids = store.list_sessions()
+    saved = store.load(session_ids[0])
+    assert len(saved) == 6
