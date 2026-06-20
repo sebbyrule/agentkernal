@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from agentkernel.approval import Approver
     from agentkernel.config import Config
     from agentkernel.context import ContextManager
-    from agentkernel.memory import MemoryStore
+    from agentkernel.memory import MemoryNotes, MemoryStore
     from agentkernel.providers import Provider
     from agentkernel.skills import ContextSource
     from agentkernel.telemetry import Telemetry
@@ -43,6 +43,7 @@ class Agent:
         config: Config,
         budget: BudgetGuard | None = None,
         memory: MemoryStore | None = None,
+        notes: MemoryNotes | None = None,
         context_source: ContextSource | None = None,
     ) -> None:
         self.provider = provider
@@ -53,6 +54,7 @@ class Agent:
         self.config = config
         self.budget = budget
         self.memory = memory
+        self.notes = notes
         self.context_source = context_source
 
     def run(self, user_input: str, *, profile: Any | None = None) -> str:

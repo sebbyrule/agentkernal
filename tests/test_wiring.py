@@ -56,6 +56,39 @@ def test_graph_tools_absent_by_default(tmp_path):
 # --- skills (Phase 4) ------------------------------------------------------
 
 
+def test_build_runtime_injects_memory_tools_when_enabled(tmp_path):
+    cfg = _cfg(
+        tmp_path,
+        enable_memory_tools=True,
+        memory_notes_path=str(tmp_path / "notes.jsonl"),
+    )
+    agent, telemetry, clients = build_runtime(cfg)
+    try:
+        names = {s.name for s in agent.registry.specs()}
+        assert {"remember", "recall", "forget", "update_memory"} <= names
+        # Session tools depend on a MemoryStore being configured.
+        assert "list_sessions" not in names
+    finally:
+        _teardown(telemetry, clients)
+
+
+def test_build_runtime_injects_session_search_when_sqlite(tmp_path):
+    cfg = _cfg(
+        tmp_path,
+        memory_store="sqlite",
+        memory_dir=str(tmp_path / "mem"),
+        enable_memory_tools=True,
+        memory_notes_path=str(tmp_path / "notes.jsonl"),
+    )
+    agent, telemetry, clients = build_runtime(cfg)
+    try:
+        names = {s.name for s in agent.registry.specs()}
+        assert "search_sessions" in names
+        assert "list_sessions" in names
+    finally:
+        _teardown(telemetry, clients)
+
+
 def test_build_runtime_injects_skill_catalog_and_pin(tmp_path):
     skills = tmp_path / "skills"
     skills.mkdir()
@@ -68,6 +101,35 @@ def test_build_runtime_injects_skill_catalog_and_pin(tmp_path):
         assert any("Answer in one sentence." in a for a in adds)  # pinned body shown
         # The use_skill tool is registered so bodies can also load on demand.
         assert "use_skill" in {s.name for s in agent.registry.specs()}
+    finally:
+        _teardown(telemetry, clients)
+
+
+def test_build_runtime_wires_memory_notes_for_repl(tmp_path):
+    cfg = _cfg(
+        tmp_path,
+        enable_memory_tools=True,
+        memory_notes_path=str(tmp_path / "notes.jsonl"),
+    )
+    agent, telemetry, clients = build_runtime(cfg)
+    try:
+        assert agent.notes is not None
+        agent.notes.add("first fact", tags=["demo"])
+        agent.notes.add("second fact")
+        out: list[str] = []
+        repl(
+            agent,
+            config=cfg,
+            input_fn=_ScriptedInput(
+                ["/memory list", "/memory delete 2", "/memory export", "exit"]
+            ),
+            output_fn=out.append,
+        )
+        assert any("[1] first fact [tags: demo]" in line for line in out)
+        assert any("[2] second fact" in line for line in out)
+        assert any("deleted note 2" in line.lower() for line in out)
+        assert any("exported" in line.lower() for line in out)
+        assert len(agent.notes.all()) == 1
     finally:
         _teardown(telemetry, clients)
 

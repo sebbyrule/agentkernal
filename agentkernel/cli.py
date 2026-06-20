@@ -29,7 +29,12 @@ from agentkernel.context import ContextManager, ModelSummarizer
 from agentkernel.mcp import MCPClient, MCPError, load_mcp_servers, register_mcp_servers
 from agentkernel.mcp.config import MCPServerConfig
 from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
-from agentkernel.memory import MemoryStore, make_memory_store
+from agentkernel.memory import (
+    MemoryNotes,
+    MemoryStore,
+    make_memory_store,
+    make_memory_tools,
+)
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.providers import ProviderError, make_provider
@@ -41,7 +46,7 @@ from agentkernel.tools.builtin import default_tools
 
 _BANNER = (
     "agentkernel REPL - type your message and press enter. Commands: /exit, "
-    "/clear, /system, /profile, /skills, /skill, /tools, /trace, /cost."
+    "/clear, /system, /profile, /skills, /skill, /tools, /trace, /cost, /memory."
 )
 _PROMPT = "> "
 _EXIT_WORDS = {"exit", "quit", ":q"}
@@ -83,6 +88,21 @@ def build_runtime(
     # Phase 6: expose the knowledge graph as ordinary tools when enabled.
     if config.enable_graph:
         for spec in make_graph_tools(KnowledgeGraph(config.graph_path)):
+            registry.register(spec)
+
+    # Phase 3: session transcript memory. Use the injected store if provided,
+    # otherwise honor config.memory_store (file/sqlite/memory). Notes are
+    # independent and always live in a JSONL notebook at memory_notes_path.
+    if memory is None:
+        memory = make_memory_store(
+            config.memory_store,
+            config.memory_dir or ".agentkernel/memory",
+        )
+
+    notes: MemoryNotes | None = None
+    if config.enable_memory_tools:
+        notes = MemoryNotes(config.memory_notes_path)
+        for spec in make_memory_tools(notes, store=memory):
             registry.register(spec)
 
     # Phase 4: skills contribute a progressive-disclosure catalog via the
@@ -130,6 +150,7 @@ def build_runtime(
         config,
         budget=budget,
         memory=memory,
+        notes=notes,
         context_source=context_source,
     )
     return agent, telemetry, mcp_clients
@@ -232,6 +253,42 @@ def _handle_slash(
             )
         else:
             output_fn("[session cost: not tracked]")
+        return True
+
+    if cmd == "memory":
+        notes = getattr(agent, "notes", None)
+        if notes is None:
+            output_fn("(memory tools are not enabled)")
+            return True
+        subparts = arg.split(None, 1)
+        sub = subparts[0].lower() if subparts else "list"
+        subarg = subparts[1] if len(subparts) > 1 else ""
+        if sub == "list":
+            limit = int(subarg) if subarg.isdigit() else 20
+            all_notes = notes.recent(limit)
+            if not all_notes:
+                output_fn("(no memory notes)")
+                return True
+            for n in all_notes:
+                tag_part = f" [tags: {', '.join(n.tags)}]" if n.tags else ""
+                output_fn(f"  [{n.note_id}] {n.text}{tag_part}")
+            return True
+        if sub == "delete":
+            if not subarg or not subarg.isdigit():
+                output_fn("usage: /memory delete <note_id>")
+                return True
+            removed = notes.forget(note_id=int(subarg))
+            if removed:
+                output_fn(f"[deleted note {subarg}]")
+            else:
+                output_fn(f"[note {subarg} not found]")
+            return True
+        if sub == "export":
+            dest = subarg or str(Path(notes.path).with_suffix(".md"))
+            path = notes.export(dest)
+            output_fn(f"[exported {len(notes.all())} notes to {path}]")
+            return True
+        output_fn("usage: /memory [list [limit]|delete <note_id>|export [path]]")
         return True
 
     output_fn(f"[unknown command: /{cmd}]")

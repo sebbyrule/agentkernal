@@ -34,7 +34,7 @@ log_dir = ".agentkernel/traces"
 # profile_dir = "profiles"
 
 # Memory (Phase 3): persist/recall conversation across runs.
-# memory_store = "file"             # "file" | "memory"
+# memory_store = "file"             # "file" | "sqlite" | "memory"
 # memory_dir = ".agentkernel/memory"
 
 # Skills (Phase 4): Anthropic-style SKILL.md skills discovered from skills_dir.

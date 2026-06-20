@@ -42,6 +42,8 @@ class Config:
     profile_dir: str = "profiles"
     memory_store: str | None = None  # "file" | "memory" | None (Phase 3)
     memory_dir: str | None = None
+    enable_memory_tools: bool = False  # register remember/recall tools (Phase 3)
+    memory_notes_path: str = ".agentkernel/memory/notes.jsonl"  # the notebook file
     skills_dir: str = "skills"  # Phase 4
     skills: list[str] = field(default_factory=list)  # active skill names (Phase 4)
     enable_graph: bool = False  # register graph_add/graph_query tools (Phase 6)

@@ -1,4 +1,4 @@
-"""Persistent memory seam (Phase 3, design §13).
+"""Persistent memory seam (Phase 3, design \u00a713).
 
 A ``MemoryStore`` loads relevant prior context before a run and saves the
 conversation after a run. It is deliberately minimal: the kernel only defines the
@@ -6,13 +6,24 @@ interface; concrete stores decide what to persist and how to recall it.
 
 All stores operate on canonical ``Message`` objects so the loop never learns
 where memory came from.
+
+This module also exposes a model-controlled ``MemoryNotes`` notebook: discrete
+facts the *model* chooses to write and read on demand (``remember`` / ``recall``
+tools). The notebook is append-only JSONL and shared across sessions.
+
+P3 addition: ``SqliteMemoryStore`` for relational, FTS5-searchable session
+storage using only the stdlib ``sqlite3`` module.
 """
 
 from __future__ import annotations
 
 import json
+import math
+import re
+import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -30,6 +41,14 @@ class MemoryStore(Protocol):
         """Persist the messages from the just-finished run."""
         ...
 
+    def delete(self, session_id: str) -> None:
+        """Remove any persisted messages for ``session_id``."""
+        ...
+
+    def list_sessions(self) -> list[str]:
+        """Return known session ids (for management / cleanup)."""
+        ...
+
 
 @dataclass
 class InMemoryMemoryStore:
@@ -42,6 +61,12 @@ class InMemoryMemoryStore:
 
     def save(self, session_id: str, messages: Sequence[Message]) -> None:
         self._data[session_id] = list(messages)
+
+    def delete(self, session_id: str) -> None:
+        self._data.pop(session_id, None)
+
+    def list_sessions(self) -> list[str]:
+        return sorted(self._data)
 
 
 @dataclass
@@ -81,16 +106,735 @@ class FileMemoryStore:
             for message in messages:
                 fh.write(json.dumps(message.to_dict()) + "\n")
 
+    def delete(self, session_id: str) -> None:
+        path = self._path(session_id)
+        if path.is_file():
+            path.unlink()
+
+    def list_sessions(self) -> list[str]:
+        if not self._dir.is_dir():
+            return []
+        sessions: list[str] = []
+        for path in self._dir.iterdir():
+            if path.suffix == ".jsonl" and path.name != "notes.jsonl":
+                sessions.append(path.stem)
+        return sorted(sessions)
+
     def _path(self, session_id: str) -> Path:
         # Sanitize session_id enough for a filename; UUIDs are the normal input.
         safe = "".join(c for c in session_id if c.isalnum() or c in "-_.")
         return self._dir / f"{safe}.jsonl"
 
 
+@dataclass
+class SqliteMemoryStore:
+    """SQLite-backed session memory.
+
+    Messages are stored relationally with optional FTS5 content search across
+    session transcripts. ``sqlite3`` is part of the Python stdlib, so this adds
+    no external dependency. If FTS5 is unavailable in the local build, the store
+    falls back to relational storage and search methods use a LIKE fallback.
+    """
+
+    path: str | Path
+
+    def __post_init__(self) -> None:
+        self._path = Path(self.path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn: sqlite3.Connection | None = None
+        self._fts_enabled: bool | None = None
+        self._ensure_schema()
+
+    def _connection(self) -> sqlite3.Connection:
+        if self._conn is None:
+            self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+        return self._conn
+
+    def _ensure_schema(self) -> None:
+        conn = self._connection()
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL,
+                position INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_session_position
+                ON messages(session_id, position);
+            """
+        )
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content)"
+            )
+            self._fts_enabled = True
+        except sqlite3.OperationalError:
+            self._fts_enabled = False
+        conn.commit()
+
+    def load(self, session_id: str) -> list[Message]:
+        rows = self._connection().execute(
+            """
+            SELECT payload_json
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY position
+            """,
+            (session_id,),
+        ).fetchall()
+        messages: list[Message] = []
+        for row in rows:
+            try:
+                messages.append(Message.from_dict(json.loads(row["payload_json"])))
+            except (json.JSONDecodeError, KeyError):
+                continue  # skip corrupt records rather than crash
+        return messages
+
+    def save(self, session_id: str, messages: Sequence[Message]) -> None:
+        conn = self._connection()
+        with conn:
+            existing_ids = [
+                r["id"]
+                for r in conn.execute(
+                    "SELECT id FROM messages WHERE session_id = ?", (session_id,)
+                ).fetchall()
+            ]
+            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            if self._fts_enabled:
+                for mid in existing_ids:
+                    conn.execute("DELETE FROM messages_fts WHERE rowid = ?", (mid,))
+            conn.execute(
+                "INSERT OR REPLACE INTO sessions(session_id) VALUES (?)", (session_id,)
+            )
+            for position, message in enumerate(messages):
+                cursor = conn.execute(
+                    """
+                    INSERT INTO messages
+                        (session_id, content, payload_json, position)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        message.content,
+                        json.dumps(message.to_dict()),
+                        position,
+                    ),
+                )
+                if self._fts_enabled:
+                    conn.execute(
+                        "INSERT INTO messages_fts(rowid, content) VALUES (?, ?)",
+                        (cursor.lastrowid, message.content),
+                    )
+
+    def delete(self, session_id: str) -> None:
+        conn = self._connection()
+        with conn:
+            existing_ids = [
+                r["id"]
+                for r in conn.execute(
+                    "SELECT id FROM messages WHERE session_id = ?", (session_id,)
+                ).fetchall()
+            ]
+            if self._fts_enabled:
+                for mid in existing_ids:
+                    conn.execute("DELETE FROM messages_fts WHERE rowid = ?", (mid,))
+            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+
+    def list_sessions(self) -> list[str]:
+        rows = self._connection().execute(
+            "SELECT session_id FROM sessions ORDER BY session_id"
+        ).fetchall()
+        return [r["session_id"] for r in rows]
+
+    def search_sessions(self, query: str, limit: int = 10) -> list[str]:
+        """Return session_ids whose messages match ``query``.
+
+        Uses FTS5 MATCH when available; otherwise falls back to substring search
+        on message contents.
+        """
+        query = query.strip()
+        if not query or not self._has_messages():
+            return []
+        conn = self._connection()
+        if self._fts_enabled:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT m.session_id
+                    FROM messages_fts f
+                    JOIN messages m ON f.rowid = m.id
+                    WHERE f MATCH ?
+                    ORDER BY m.session_id
+                    LIMIT ?
+                    """,
+                    (query, limit),
+                ).fetchall()
+                return [r["session_id"] for r in rows]
+            except sqlite3.OperationalError:
+                pass  # malformed FTS5 query; fall through to LIKE
+        like = f"%{query}%"
+        rows = conn.execute(
+            """
+            SELECT DISTINCT session_id
+            FROM messages
+            WHERE content LIKE ?
+            ORDER BY session_id
+            LIMIT ?
+            """,
+            (like, limit),
+        ).fetchall()
+        return [r["session_id"] for r in rows]
+
+    def _has_messages(self) -> bool:
+        return (
+            self._connection()
+            .execute("SELECT 1 FROM messages LIMIT 1")
+            .fetchone()
+            is not None
+        )
+
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+
 def make_memory_store(kind: str | None, directory: str | Path | None = None) -> MemoryStore | None:
     """Factory for the built-in memory stores."""
     if kind == "file":
         return FileMemoryStore(directory or ".agentkernel/memory")
+    if kind == "sqlite":
+        path = Path(directory or ".agentkernel/memory") / "memory.db"
+        return SqliteMemoryStore(path)
     if kind == "memory":
         return InMemoryMemoryStore()
     return None
+
+
+# --- Token normalization for keyword search ---------------------------------
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _normalize_token(token: str) -> str:
+    """Simple English-lite stemmer for better keyword recall.
+
+    Handles plurals, possessives, and the most common verb suffixes. This is a
+    dependency-free approximation; it intentionally keeps false positives low
+    for short tokens and avoids normalizing away useful distinctions.
+    """
+    if len(token) <= 3:
+        return token
+    if token.endswith("'s"):
+        token = token[:-2]
+    if token.endswith("ies") and len(token) > 4:
+        token = token[:-3] + "y"
+    elif token.endswith("ses") and len(token) > 4:
+        token = token[:-2]
+    elif token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+        token = token[:-1]
+    if token.endswith("ying") and len(token) > 5:
+        token = token[:-4] + "ie"
+    elif token.endswith("ing") and len(token) > 5:
+        token = token[:-3]
+    elif token.endswith("ied") and len(token) > 5:
+        token = token[:-3] + "y"
+    elif token.endswith("ed") and len(token) > 4:
+        token = token[:-2]
+    return token
+
+
+def _tokens(text: str) -> set[str]:
+    return {_normalize_token(t) for t in _TOKEN_RE.findall(text.lower())}
+
+
+# --- Model-controlled memory: remember / recall / forget tools ---------------
+#
+# Distinct from MemoryStore (which auto-loads/saves a session transcript): this
+# is a persistent notebook of discrete facts the *model* chooses to write and
+# read on demand, exposed as ordinary tools (the "everything is a tool"
+# principle). The notebook is append-only JSONL and shared across sessions, so a
+# fact remembered in one session is recallable in the next.
+
+
+@dataclass
+class MemoryNote:
+    """One remembered fact."""
+
+    text: str
+    tags: list[str] = field(default_factory=list)
+    created: str = ""
+    note_id: int = 0
+    accessed: str = ""  # ISO timestamp of last recall/update (P1 metadata)
+    access_count: int = 0  # how many times the note has been recalled (P1)
+
+    def to_dict(self) -> dict:
+        return {
+            "text": self.text,
+            "tags": self.tags,
+            "created": self.created,
+            "note_id": self.note_id,
+            "accessed": self.accessed,
+            "access_count": self.access_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> MemoryNote:
+        return cls(
+            text=data.get("text", ""),
+            tags=list(data.get("tags", [])),
+            created=data.get("created", ""),
+            note_id=data.get("note_id", 0),
+            accessed=data.get("accessed", ""),
+            access_count=data.get("access_count", 0),
+        )
+
+
+class MemoryNotes:
+    """Append-only notebook of facts with keyword + recency recall.
+
+    Persistence is a single JSONL file (one note per line). Recall scores notes
+    by token overlap with the query and breaks ties toward more recent notes; an
+    empty query returns the most recent notes.
+
+    Notes are assigned stable IDs so they can be listed, updated, or forgotten
+    from the REPL or by the model via ordinary tools.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self._notes: list[MemoryNote] = []
+        self._next_id: int = 1
+        if self.path.is_file():
+            self._load()
+
+    def _load(self) -> None:
+        with self.path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    note = MemoryNote.from_dict(json.loads(line))
+                except (json.JSONDecodeError, AttributeError):
+                    continue  # skip a corrupt line rather than crash
+                self._notes.append(note)
+                if note.note_id >= self._next_id:
+                    self._next_id = note.note_id + 1
+
+    def _append_line(self, note: MemoryNote) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(note.to_dict()) + "\n")
+
+    def _rewrite(self) -> None:
+        """Rewrite the file after a deletion or update."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("w", encoding="utf-8") as fh:
+            for note in self._notes:
+                fh.write(json.dumps(note.to_dict()) + "\n")
+
+    def _touch(self, note: MemoryNote) -> None:
+        """Record that a note was recalled. Updated in memory; a subsequent
+        rewrite will persist the new access metadata."""
+        note.access_count += 1
+        note.accessed = datetime.now(timezone.utc).isoformat()
+
+    def add(self, text: str, tags: Sequence[str] | None = None, *, note_id: int | None = None) -> MemoryNote:
+        note = MemoryNote(
+            text=text.strip(),
+            tags=[str(t) for t in (tags or [])],
+            created=datetime.now(timezone.utc).isoformat(),
+            note_id=note_id if note_id is not None else self._next_id,
+        )
+        if note.note_id >= self._next_id:
+            self._next_id = note.note_id + 1
+        self._notes.append(note)
+        self._append_line(note)
+        return note
+
+    def all(self) -> list[MemoryNote]:
+        return list(self._notes)
+
+    def recent(self, limit: int = 5) -> list[MemoryNote]:
+        results = self._notes[-limit:][::-1]  # newest first
+        for note in results:
+            self._touch(note)
+        return results
+
+    def _tfidf_vectors(self) -> tuple[dict[str, float], list[dict[str, float]]]:
+        """Compute sparse TF-IDF vectors for all notes.
+
+        Returns ``(idf, vectors)`` where each vector maps normalized token to
+        its TF-IDF weight. This is a dependency-free semantic approximation;
+        it ranks notes by cosine similarity rather than raw keyword overlap.
+        """
+        df: dict[str, int] = {}
+        doc_tokens: list[set[str]] = []
+        for note in self._notes:
+            tokens = _tokens(note.text) | {_normalize_token(t) for t in note.tags}
+            doc_tokens.append(tokens)
+            for t in tokens:
+                df[t] = df.get(t, 0) + 1
+        N = len(self._notes)
+        idf = {t: math.log((N + 1) / (df[t] + 1)) + 1 for t in df}
+        vectors: list[dict[str, float]] = []
+        for tokens in doc_tokens:
+            total = len(tokens) or 1
+            vectors.append({t: (1 / total) * idf[t] for t in tokens})
+        return idf, vectors
+
+    def search(self, query: str, limit: int = 5) -> list[MemoryNote]:
+        terms = _tokens(query)
+        if not terms:
+            return self.recent(limit)
+        idf, vectors = self._tfidf_vectors()
+        query_total = len(terms) or 1
+        query_vec = {t: (1 / query_total) * idf.get(t, 0) for t in terms}
+        query_norm = math.sqrt(sum(v * v for v in query_vec.values())) or 1.0
+        scored: list[tuple[float, int, MemoryNote]] = []
+        for index, (note, vec) in enumerate(zip(self._notes, vectors)):
+            if not vec:
+                continue
+            dot = sum(query_vec.get(t, 0) * vec.get(t, 0) for t in terms)
+            note_norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0
+            similarity = dot / (query_norm * note_norm)
+            if similarity > 0:
+                self._touch(note)
+                scored.append((similarity, index, note))
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [note for _score, _index, note in scored[:limit]]
+
+    def deduplicate(self) -> int:
+        """Merge notes with identical text, combining tags and keeping the oldest id.
+
+        Returns the number of notes removed.
+        """
+        seen: dict[str, MemoryNote] = {}
+        kept: list[MemoryNote] = []
+        removed = 0
+        for note in self._notes:
+            text = note.text.strip().lower()
+            if text in seen:
+                existing = seen[text]
+                existing.tags = sorted(set(existing.tags) | set(note.tags))
+                if note.access_count:
+                    existing.access_count += note.access_count
+                removed += 1
+            else:
+                seen[text] = note
+                kept.append(note)
+        if removed:
+            self._notes = kept
+            self._rewrite()
+        return removed
+
+    def forget(self, *, note_id: int | None = None, text_prefix: str | None = None) -> list[MemoryNote]:
+        """Remove notes matching ``note_id`` or whose text starts with ``text_prefix``.
+
+        Returns the notes that were removed.
+        """
+        removed: list[MemoryNote] = []
+        remaining: list[MemoryNote] = []
+        prefix = (text_prefix or "").strip().lower()
+        for note in self._notes:
+            if note_id is not None and note.note_id == note_id:
+                removed.append(note)
+            elif prefix and note.text.lower().startswith(prefix):
+                removed.append(note)
+            else:
+                remaining.append(note)
+        self._notes = remaining
+        if removed:
+            self._rewrite()
+        return removed
+
+    def update(self, note_id: int, text: str, tags: Sequence[str] | None = None) -> MemoryNote | None:
+        """Replace the text/tags of an existing note in place."""
+        for note in self._notes:
+            if note.note_id == note_id:
+                note.text = text.strip()
+                note.tags = [str(t) for t in (tags or [])]
+                note.accessed = datetime.now(timezone.utc).isoformat()
+                self._rewrite()
+                return note
+        return None
+
+    def export(self, destination: str | Path) -> Path:
+        """Write a human-readable markdown summary of all notes."""
+        dest = Path(destination)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        lines: list[str] = ["# Memory Notes\n"]
+        for note in self._notes:
+            tag_part = f" *[{', '.join(note.tags)}]*" if note.tags else ""
+            access_part = f", accessed {note.access_count} time(s)" if note.access_count else ""
+            lines.append(f"- {note.text}{tag_part}  (id={note.note_id}, {note.created}{access_part})\n")
+        dest.write_text("".join(lines), encoding="utf-8")
+        return dest
+
+
+def make_memory_tools(notes: MemoryNotes, store: MemoryStore | None = None) -> list:
+    """Build the memory-management tools over a notebook and optional session store.
+
+    ``remember`` is ungated: writes go only to the dedicated notebook file, so
+    the model can manage its own memory autonomously (cf. Anthropic's memory
+    tool) without an approval prompt per fact.
+    """
+    from agentkernel.tools.base import ToolSpec
+    from agentkernel.types import ToolResult
+
+    def remember(arguments: dict) -> ToolResult:
+        text = arguments["text"]
+        note = notes.add(text, arguments.get("tags"))
+        suffix = f" [tags: {', '.join(note.tags)}]" if note.tags else ""
+        return ToolResult("", f"Remembered: {note.text}{suffix}")
+
+    def recall(arguments: dict) -> ToolResult:
+        query = arguments.get("query", "") or ""
+        limit = int(arguments.get("limit", 5))
+        results = notes.search(query, limit) if query else notes.recent(limit)
+        if not results:
+            return ToolResult("", "(no relevant memories)")
+        lines = [
+            f"- [{n.note_id}] {n.text}" + (f"  [tags: {', '.join(n.tags)}]" if n.tags else "")
+            for n in results
+        ]
+        return ToolResult("", "\n".join(lines))
+
+    def forget(arguments: dict) -> ToolResult:
+        note_id = arguments.get("note_id")
+        if note_id is not None:
+            note_id = int(note_id)
+        removed = notes.forget(note_id=note_id, text_prefix=arguments.get("text_prefix", ""))
+        if not removed:
+            return ToolResult("", "(no matching memories)")
+        return ToolResult("", f"Forgot {len(removed)} memory(s).")
+
+    def update_memory(arguments: dict) -> ToolResult:
+        note_id = int(arguments["note_id"])
+        note = notes.update(note_id, arguments["text"], arguments.get("tags"))
+        if note is None:
+            return ToolResult("", f"No note with id={note_id}.", is_error=True)
+        return ToolResult("", f"Updated note {note_id}.")
+
+    def memory_stats(arguments: dict) -> ToolResult:
+        total = len(notes.all())
+        if not total:
+            return ToolResult("", "No memory notes stored yet.")
+        by_access = sorted(notes.all(), key=lambda n: n.access_count, reverse=True)[:5]
+        lines = [f"Total notes: {total}"]
+        if by_access and by_access[0].access_count:
+            lines.append("Most recalled:")
+            lines.extend(f"  [{n.note_id}] {n.text} ({n.access_count})" for n in by_access)
+        newest = notes.recent(1)[0] if notes.all() else None
+        if newest:
+            lines.append(f"Newest note: [{newest.note_id}] {newest.text} ({newest.created})")
+        return ToolResult("", "\n".join(lines))
+
+    def deduplicate_memory(arguments: dict) -> ToolResult:
+        removed = notes.deduplicate()
+        return ToolResult("", f"Removed {removed} duplicate note(s). {len(notes.all())} unique note(s) remain.")
+
+    tools = [
+        ToolSpec(
+            name="remember",
+            description=(
+                "Save a durable fact to long-term memory (persists across "
+                "sessions). Use for stable user preferences, project facts, and "
+                "decisions worth recalling later — not transient chatter."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "The fact to remember."},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional keywords to aid later recall.",
+                    },
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+            handler=remember,
+            category="memory",
+        ),
+        ToolSpec(
+            name="recall",
+            description=(
+                "Search long-term memory for relevant facts. Provide a query to "
+                "find related notes, or omit it for the most recent ones. Note IDs "
+                "are shown so you can update or forget them later."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to search for."},
+                    "limit": {"type": "integer", "description": "Max notes to return."},
+                },
+                "additionalProperties": False,
+            },
+            handler=recall,
+            category="memory",
+        ),
+        ToolSpec(
+            name="forget",
+            description=(
+                "Remove one or more durable facts from long-term memory. Match by "
+                "exact note_id (preferred) or by deleting every note whose text "
+                "starts with text_prefix."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "note_id": {"type": "integer", "description": "Exact id of the note to remove."},
+                    "text_prefix": {"type": "string", "description": "Remove notes whose text starts with this string."},
+                },
+                "additionalProperties": False,
+            },
+            handler=forget,
+            category="memory",
+        ),
+        ToolSpec(
+            name="update_memory",
+            description=(
+                "Replace the text and optional tags of an existing memory note "
+                "by its note_id. Use when a fact changes rather than deleting and "
+                "re-adding it."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "note_id": {"type": "integer", "description": "Exact id of the note to update."},
+                    "text": {"type": "string", "description": "New note text."},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional replacement tags.",
+                    },
+                },
+                "required": ["note_id", "text"],
+                "additionalProperties": False,
+            },
+            handler=update_memory,
+            category="memory",
+        ),
+        ToolSpec(
+            name="memory_stats",
+            description=(
+                "Show summary statistics about the long-term memory notebook: "
+                "total notes, most-recalled facts, and the newest note."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            handler=memory_stats,
+            category="memory",
+        ),
+        ToolSpec(
+            name="deduplicate_memory",
+            description=(
+                "Merge duplicate notes (identical text) by combining their tags "
+                "and access counts. Call this when the notebook feels cluttered "
+                "or the user asks to clean up redundant facts."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            handler=deduplicate_memory,
+            category="memory",
+        ),
+    ]
+
+    if store is not None:
+        def list_sessions(arguments: dict) -> ToolResult:
+            sessions = store.list_sessions()
+            if not sessions:
+                return ToolResult("", "(no saved sessions)")
+            return ToolResult("", "Saved session IDs:\n" + "\n".join(f"- {s}" for s in sessions))
+
+        def delete_session(arguments: dict) -> ToolResult:
+            session_id = arguments["session_id"]
+            store.delete(session_id)
+            return ToolResult("", f"Deleted session {session_id}.")
+
+        tools.extend([
+            ToolSpec(
+                name="list_sessions",
+                description=(
+                    "List IDs of previously persisted conversation sessions. Use "
+                    "this when the user asks about history from another session."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                handler=list_sessions,
+                category="memory",
+            ),
+            ToolSpec(
+                name="delete_session",
+                description=(
+                    "Delete a previously persisted conversation session by its "
+                    "session_id. This is permanent: the transcript will not be "
+                    "loaded in future runs."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session ID to delete."},
+                    },
+                    "required": ["session_id"],
+                    "additionalProperties": False,
+                },
+                handler=delete_session,
+                category="memory",
+            ),
+        ])
+
+        if hasattr(store, "search_sessions"):
+            def search_sessions(arguments: dict) -> ToolResult:
+                query = arguments.get("query", "") or ""
+                if not query:
+                    return ToolResult("", "usage: provide a query", is_error=True)
+                limit = int(arguments.get("limit", 10))
+                results = store.search_sessions(query, limit=limit)  # type: ignore[attr-defined]
+                if not results:
+                    return ToolResult("", "(no matching sessions)")
+                return ToolResult("", "Matching sessions:\n" + "\n".join(f"- {s}" for s in results))
+
+            tools.append(
+                ToolSpec(
+                    name="search_sessions",
+                    description=(
+                        "Search saved conversation sessions for those containing "
+                        "messages that match the query. Uses full-text search "
+                        "when the underlying store supports it."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Words to search for in session messages."},
+                            "limit": {"type": "integer", "description": "Max sessions to return."},
+                        },
+                        "required": ["query"],
+                        "additionalProperties": False,
+                    },
+                    handler=search_sessions,
+                    category="memory",
+                )
+            )
+
+    return tools
