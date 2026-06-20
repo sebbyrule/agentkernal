@@ -38,7 +38,9 @@ def _capture(monkeypatch, module, response):
 
 
 _OPENAI_RESP = {"choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}], "usage": {}}
-_ANTHROPIC_RESP = {"content": [{"type": "text", "text": "hi"}], "usage": {}, "stop_reason": "end_turn"}
+_ANTHROPIC_RESP = {
+    "content": [{"type": "text", "text": "hi"}], "usage": {}, "stop_reason": "end_turn",
+}
 
 
 def test_openai_sends_reasoning_effort(monkeypatch):
