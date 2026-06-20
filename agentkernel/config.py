@@ -63,6 +63,8 @@ class Config:
     spawn_max_depth: int = 2  # recursion limit for nested spawn
     judge_model: str | None = None  # model used to score evals; None -> `model`
     eval_threshold: float = 0.6  # pass/fail score cutoff for evals
+    eval_rubric: str | None = None  # default rubric for eval runs
+    semantic_search_lsh_bits: int | None = None  # LSH index bits for large notebooks
 
     @classmethod
     def load(

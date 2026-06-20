@@ -4,6 +4,9 @@ This is a thin subclass of ``SqliteNoteStore`` so the JSONL / SQLite split and
 all existing memory-tool behavior stay intact. When an ``EmbeddingProvider`` is
 configured, each note stores a dense vector and recall is re-ranked by cosine
 similarity rather than only token overlap.
+
+For large notebooks the optional LSH index in ``semantic_index`` prunes the
+candidate set before the dense comparison, avoiding a full linear scan.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from typing import Sequence
 
 from agentkernel.embeddings import EmbeddingProvider, cosine_similarity
 from agentkernel.memory import MemoryNote, SqliteNoteStore
+from agentkernel.semantic_index import LSHIndex
 
 
 class SemanticSqliteNoteStore(SqliteNoteStore):
@@ -29,8 +33,11 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         path: str | Path,
         *,
         embedding_provider: EmbeddingProvider,
+        lsh_bits: int | None = None,
     ) -> None:
         self._embedding_provider = embedding_provider
+        self._lsh_bits = lsh_bits
+        self._lsh_index: LSHIndex | None = None
         # Parent creates the notes table and optional FTS5 index.
         super().__init__(path)
         self._ensure_embedding_schema()
@@ -47,12 +54,46 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         )
         conn.commit()
 
+    def _ensure_lsh_index(self, sample_vector: list[float] | None = None) -> None:
+        """Create the LSH index once we know the vector dimension."""
+        if self._lsh_index is not None or not self._lsh_bits:
+            return
+
+        dim = len(sample_vector) if sample_vector else None
+        if dim is None:
+            rows = self._connection().execute(
+                "SELECT embedding_json FROM note_embeddings LIMIT 1"
+            ).fetchall()
+            if rows:
+                dim = len(json.loads(rows[0]["embedding_json"]))
+        if dim is None:
+            return  # no embeddings yet; will initialize on first note
+
+        self._lsh_index = LSHIndex(
+            dim=dim,
+            num_bits=self._lsh_bits,
+            conn=self._connection,
+            seed=0,
+        )
+        # Backfill buckets for any existing embeddings (e.g. after a schema
+        # change or when opening an older notebook).
+        count = self._connection().execute(
+            "SELECT COUNT(*) FROM lsh_buckets"
+        ).fetchone()[0]
+        if count == 0:
+            rows = self._connection().execute(
+                "SELECT note_id, embedding_json FROM note_embeddings"
+            ).fetchall()
+            for row in rows:
+                self._lsh_index.upsert(row["note_id"], json.loads(row["embedding_json"]))
+
     def _upsert_embedding(self, note_id: int, text: str) -> None:
         if not text or self._embedding_provider is None:
             return
         vector = self._embedding_provider.embed([text])[0]
         if not vector:
             return
+        self._ensure_lsh_index(vector)
         with self._connection():
             self._connection().execute(
                 """
@@ -63,6 +104,8 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
                 """,
                 (note_id, json.dumps(vector)),
             )
+        if self._lsh_index is not None:
+            self._lsh_index.upsert(note_id, vector)
 
     def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
         note = super().add(text, tags=tags)
@@ -88,10 +131,8 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         if self._embedding_provider is None:
             return super().search(query, limit=limit)
 
-        # Dense ranking over the whole notebook. For typical personal notebooks
-        # this is small; swap in an approximate vector index if scale demands it.
         query_vec = self._embedding_provider.embed([query])[0]
-        candidates = self.all()
+        candidates = self._candidates(query_vec, limit=limit)
         if not candidates:
             return []
 
@@ -114,6 +155,41 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         for note in ranked:
             self._touch(note)
         return ranked
+
+    def _candidates(
+        self, query_vec: list[float], *, limit: int
+    ) -> list[MemoryNote]:
+        """Return notes to score for ``query_vec``.
+
+        If an LSH index is active, use it to narrow the set; otherwise fall
+        back to scanning every note. When the pruned set is too small we also
+        fall back to avoid missing neighbors due to hash collisions.
+        """
+        all_notes = self.all()
+        if not self._lsh_bits or not all_notes:
+            return all_notes
+
+        self._ensure_lsh_index()
+        if self._lsh_index is None:
+            return all_notes
+
+        buckets = self._lsh_index.query_buckets(query_vec)
+        candidate_ids = self._lsh_index.candidate_ids(buckets)
+        # LSH is only a speedup; if the bucket is empty or tiny, scan the table
+        # so accuracy does not suffer on small notebooks or unlucky hashes.
+        if len(candidate_ids) < max(limit * 2, 8):
+            return all_notes
+
+        placeholders = ",".join("?" for _ in candidate_ids)
+        rows = self._connection().execute(
+            f"""
+            SELECT * FROM notes
+            WHERE note_id IN ({placeholders})
+            ORDER BY note_id
+            """,
+            tuple(candidate_ids),
+        ).fetchall()
+        return [self._row_to_note(r) for r in rows]
 
     def _load_embeddings(self, note_ids: list[int]) -> dict[int, list[float]]:
         if not note_ids:
@@ -146,10 +222,13 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         with self._connection():
             for row, vec in zip(rows, vectors):
                 if vec:
+                    self._ensure_lsh_index(vec)
                     self._connection().execute(
                         "INSERT INTO note_embeddings (note_id, embedding_json) VALUES (?, ?)",
                         (row["note_id"], json.dumps(vec)),
                     )
+                    if self._lsh_index is not None:
+                        self._lsh_index.upsert(row["note_id"], vec)
                     count += 1
         return count
 
@@ -168,4 +247,7 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
                     f"DELETE FROM note_embeddings WHERE note_id IN ({placeholders})",
                     tuple(ids),
                 )
+                if self._lsh_index is not None:
+                    for nid in ids:
+                        self._lsh_index.remove(nid)
         return removed

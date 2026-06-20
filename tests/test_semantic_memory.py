@@ -137,3 +137,41 @@ def test_openai_provider_infers_openai_endpoint():
     provider = OpenAIEmbeddingProvider.from_config(cfg)
     assert provider.base_url == "https://api.openai.com/v1"
     assert provider.model == "text-embedding-3-small"
+
+
+def test_lsh_index_returns_same_top_results_as_flat_search(tmp_path):
+    store = SemanticSqliteNoteStore(
+        tmp_path / "lsh.db",
+        embedding_provider=_FakeEmbeddingProvider(),
+        lsh_bits=4,
+    )
+    for _ in range(6):
+        store.add("cat fact")
+    for _ in range(6):
+        store.add("dog fact")
+    results = store.search("kitten", limit=2)
+    assert all("cat" in n.text for n in results)
+
+
+def test_lsh_bucket_metadata_survives_reopen(tmp_path):
+    path = tmp_path / "lsh.db"
+    store = SemanticSqliteNoteStore(
+        path,
+        embedding_provider=_FakeEmbeddingProvider(),
+        lsh_bits=4,
+    )
+    store.add("cat fact")
+    store.close()
+
+    reopened = SemanticSqliteNoteStore(
+        path,
+        embedding_provider=_FakeEmbeddingProvider(),
+        lsh_bits=4,
+    )
+    rows = reopened._connection().execute(
+        "SELECT COUNT(*) AS c FROM lsh_buckets"
+    ).fetchone()
+    assert rows["c"] == 1
+    results = reopened.search("kitten", limit=1)
+    assert results and "cat" in results[0].text
+

@@ -112,7 +112,11 @@ def build_runtime(
                 notes_path = Path(config.memory_notes_path)
                 if notes_path.suffix.lower() not in (".db", ".sqlite", ".sqlite3"):
                     notes_path = notes_path.parent / (notes_path.stem + ".semantic.db")
-                notes = SemanticSqliteNoteStore(notes_path, embedding_provider=emb_provider)
+                notes = SemanticSqliteNoteStore(
+                    notes_path,
+                    embedding_provider=emb_provider,
+                    lsh_bits=config.semantic_search_lsh_bits,
+                )
             except EmbeddingError as exc:
                 print(f"Warning: semantic search disabled: {exc}", file=sys.stderr)
                 notes = make_note_store(config.memory_notes_path)

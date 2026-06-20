@@ -47,6 +47,7 @@ log_dir = ".agentkernel/traces"
 # memory_store_budget = 4000        # summarize older turns before persisting
 
 # semantic_search = false            # rank note recall with dense embeddings (SQLite only)
+# semantic_search_lsh_bits = 16      # approximate vector index; omit for brute force
 # embedding_model = "text-embedding-3-small"
 # embedding_base_url = "http://localhost:11434/v1"  # OpenAI-compatible endpoint
 # embedding_api_key_env = "OPENAI_API_KEY"
@@ -77,6 +78,7 @@ log_dir = ".agentkernel/traces"
 # Evaluators (`agentkernel eval --suite suite.toml`): judge-scored runs.
 # judge_model = "claude-haiku-4-5-20251001"   # defaults to `model`
 # eval_threshold = 0.6
+# eval_rubric = "The answer is correct and complete."
 
 # An eval suite is a separate TOML file, e.g. suite.toml:
 #   rubric = "The answer is correct and complete."   # default for all cases
