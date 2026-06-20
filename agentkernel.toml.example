@@ -36,6 +36,9 @@ log_dir = ".agentkernel/traces"
 # Memory (Phase 3): persist/recall conversation across runs.
 # memory_store = "file"             # "file" | "sqlite" | "memory"
 # memory_dir = ".agentkernel/memory"
+# enable_memory_tools = false       # remember/recall/forget tools
+# memory_auto_context = false       # auto-inject relevant notes into each user message
+# memory_auto_context_limit = 3     # max notes per auto-recall
 
 # Skills (Phase 4): Anthropic-style SKILL.md skills discovered from skills_dir.
 # Each skill is a folder with a SKILL.md (YAML frontmatter: name, description;

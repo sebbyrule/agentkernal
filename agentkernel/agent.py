@@ -71,7 +71,9 @@ class Agent:
             for message in self.memory.load(session_id):
                 self.context.add(message)
 
-        self.context.add(Message(role="user", content=user_input))
+        self.context.add(
+            Message(role="user", content=self._prepare_user_message(user_input))
+        )
 
         # Assemble the cacheable prefix ONCE per run and reuse the same objects
         # every turn. Re-building or re-sorting these per turn would silently
@@ -155,6 +157,27 @@ class Agent:
     def _persist_memory(self, session_id: str) -> None:
         if self.memory is not None:
             self.memory.save(session_id, self.context.messages())
+
+    def _prepare_user_message(self, user_input: str) -> str:
+        """Augment the user input with relevant long-term memory when configured.
+
+        This keeps memory at the model's fingertips for the current turn without
+        changing the stable system-prompt prefix.
+        """
+        if not user_input or not self.notes or not getattr(
+            self.config, "memory_auto_context", False
+        ):
+            return user_input
+        limit = getattr(self.config, "memory_auto_context_limit", 3)
+        notes = self.notes.search(user_input, limit=limit)
+        if not notes:
+            return user_input
+        lines = ["Relevant long-term memory:"]
+        for n in notes:
+            lines.append(f"- {n.text}")
+        lines.append("---")
+        lines.append(user_input)
+        return "\n".join(lines)
 
     # --- profile seams (design §13, Phase 5) -------------------------------
 

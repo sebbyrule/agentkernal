@@ -6,6 +6,7 @@ store-specific shapes.
 
 from __future__ import annotations
 
+from agentkernel.config import Config
 from agentkernel.memory import (
     FileMemoryStore,
     InMemoryMemoryStore,
@@ -122,6 +123,37 @@ def test_agent_saves_conversation_after_run(agent_builder):
     roles = [m.role for m in saved]
     assert "user" in roles
     assert "assistant" in roles
+
+
+def test_agent_auto_context_injects_relevant_notes(agent_builder, tmp_path):
+    notes = MemoryNotes(tmp_path / "notes.jsonl")
+    notes.add("User loves pineapple pizza")
+    notes.add("User hates olives")
+    config = Config(
+        enable_memory_tools=True,
+        memory_auto_context=True,
+        memory_auto_context_limit=3,
+    )
+    provider = FakeProvider([text_response("ok")])
+    agent = agent_builder(provider, config=config)
+    agent.notes = notes
+    agent.run("pineapple party")
+    user_messages = [m for m in provider.calls[0] if m.role == "user"]
+    assert user_messages
+    assert "User loves pineapple pizza" in user_messages[0].content
+    assert "party" in user_messages[0].content
+
+
+def test_agent_auto_context_disabled_by_default(agent_builder, tmp_path):
+    notes = MemoryNotes(tmp_path / "notes.jsonl")
+    notes.add("User loves pineapple pizza")
+    config = Config(enable_memory_tools=True)
+    provider = FakeProvider([text_response("ok")])
+    agent = agent_builder(provider, config=config)
+    agent.notes = notes
+    agent.run("pineapple pizza")
+    user_messages = [m for m in provider.calls[0] if m.role == "user"]
+    assert user_messages[0].content == "pineapple pizza"
 
 
 def test_agent_does_not_double_load_when_context_persists(agent_builder):
