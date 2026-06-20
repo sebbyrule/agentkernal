@@ -32,6 +32,8 @@ class Config:
     approval_judge_model: str | None = None  # model for `smart` risk judging (§18.1)
     redact_tool_output: bool = True  # scrub secret-looking strings from tool results (§18.1)
     checkpoints: bool = False  # back up files before edits; expose a `rollback` tool (§18.1)
+    enable_todo: bool = False  # register the in-session `todo` planning tool (§18.4)
+    enable_clarify: bool = False  # register the `clarify` ask-the-user tool (§18.4)
     approval_allowlist: list[str] = field(default_factory=list)  # patterns that skip the gate
     plan_mode: bool = False              # batch-approve the whole tool plan at once
     sandbox: str = "local"  # "local" | "docker" (design §10.3)

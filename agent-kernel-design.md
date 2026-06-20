@@ -598,12 +598,12 @@ within each group is rough priority. Nothing here is committed.
 | **Git worktree isolation for `spawn`** | sub-agent tool | When a spawned child edits code, run it in a throwaway `git worktree` so parallel children don't collide. Extends the existing depth-limited `spawn` (§13) — no new concept, just an isolation flag. |
 | **Work-queue (kanban-lite)** | tool + driver | A durable SQLite board of tasks that worker sub-agents claim, complete, or block. Lets a long mission fan out across many bounded runs. Heavier; only worthwhile once `spawn` + sessions land. |
 
-### 18.4 In-session tools (cheap, high-utility)
+### 18.4 In-session tools (cheap, high-utility) — ✅ done
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **`todo` tool** | tool | In-session task list the model maintains (add/complete/list). Keeps multi-step plans legible to both the model and the user; pure in-memory state, trivially testable. |
-| **`clarify` tool** | tool (over the approver/input seam) | Lets the model ask the user a focused question mid-run instead of guessing, routed through the same CLI input channel the approver uses. No-op (auto-skip) in non-interactive `run`. |
+| **`todo` tool** ✅ | tool | **Done** (`tools/builtin/todo.py`, `enable_todo`). A `TodoList` the model maintains via one `todo` tool — actions add/start/complete/list/clear, rendered as a checkbox list with a done/total count. In-memory per session, no globals. |
+| **`clarify` tool** ✅ | tool (over the approver/input seam) | **Done** (`tools/builtin/clarify.py`, `enable_clarify`). Asks the user one question over the terminal input channel and returns the answer; on `EOFError`/no stdin it degrades to "proceed with your best judgment" rather than blocking. |
 
 ### 18.5 Provider & model layer
 

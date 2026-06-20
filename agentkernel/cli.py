@@ -100,6 +100,17 @@ def build_runtime(
         registry.register(spec)
     if checkpointer is not None:
         registry.register(rollback_tool(checkpointer))
+
+    # In-session tools (§18.4): a planning todo list and a clarify-the-user tool.
+    if config.enable_todo:
+        from agentkernel.tools.builtin.todo import TodoList, todo_tool
+
+        registry.register(todo_tool(TodoList()))
+    if config.enable_clarify:
+        from agentkernel.tools.builtin.clarify import clarify_tool
+
+        registry.register(clarify_tool())
+
     mcp_clients = register_mcp_servers(
         registry, list(mcp_servers or []), log_dir=config.mcp_log_dir
     )

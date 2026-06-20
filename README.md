@@ -126,6 +126,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `approval_judge_model` | `None` | model that judges call risk under `smart` (defaults to `summarizer_model`, then `model`) |
 | `redact_tool_output` | `True` | scrub secret-looking strings from tool results before they enter context/traces |
 | `checkpoints` | `False` | back up files before edits and register a `rollback` tool to undo them |
+| `enable_todo` / `enable_clarify` | `False` | register the in-session `todo` planning tool / the `clarify` ask-the-user tool |
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |
 | `log_dir` | `.agentkernel/traces` | where session traces are written |
