@@ -41,6 +41,7 @@ export OPENAI_API_KEY=***        # for provider = "openai" / embeddings
 
 ```bash
 uv run agentkernel                            # interactive REPL (default)
+uv run agentkernel tui                        # full-screen curses terminal UI
 uv run agentkernel run "your prompt"          # single non-interactive run, prints the answer
 uv run agentkernel run --file task.md         # single run from a prompt file
 uv run agentkernel improve                    # reflect on the latest trace, write a rule note
@@ -76,6 +77,10 @@ agentkernel REPL - type your message and press enter. Commands: /exit, /clear,
 | `/memory [list [limit] \| delete <note_id> \| export [path] \| reindex]` | manage the notebook |
 | `/improve [trace-path]` | reflect on the current (or chosen) trace and write an improvement |
 | `/exit` | leave |
+
+### Terminal UI
+
+`uv run agentkernel tui` launches a full-screen [curses](agentkernel/tui) interface over the same runtime: a scrollable, color-coded chat history, a multi-line input area, and a status bar, with the agent running on a background thread so the UI stays responsive. Type and press **Enter** to send, **PgUp/PgDn** (or arrows) to scroll, **Esc**/**q** to quit. It reads the same `agentkernel.toml`, so any configured memory, skills, and MCP servers are active. On Windows the `windows-curses` backend is installed automatically; on Unix `curses` ships with Python.
 
 ### Using the kernel as a library
 
@@ -185,7 +190,7 @@ Hand-written `httpx` adapters for **Anthropic** (Messages API), **OpenAI** (Chat
 - reports cache read/write token counts where available,
 - applies cache markers on the stable prefix (Anthropic `cache_control: ephemeral`).
 
-Translation is implemented as **pure functions** separate from the HTTP call, which is what makes adapter behavior testable offline.
+Translation is implemented as **pure functions** separate from the HTTP call, which is what makes adapter behavior testable offline. The adapters share one `httpx` transport ([`providers/_http.py`](agentkernel/providers/_http.py)) that retries transient failures (timeouts and `429`/`5xx`), honoring a server `Retry-After` header (bounded) when present, and raises `ProviderError` only once retries are exhausted.
 
 ### Tool system ([`tools/`](agentkernel/tools))
 
@@ -273,7 +278,8 @@ agentkernel/
   subagent.py           # spawn tool: delegate to a child Agent
   evaluation.py         # eval harness: judge-scored runs
   loops.py              # loop-engineering runner (run-until-condition)
-  cli.py                # REPL + run/improve/eval/loop entry points
+  cli.py                # REPL + run/improve/eval/loop/tui entry points
+  tui/                  # curses interactive terminal UI (agentkernel tui)
 examples/skills/        # sample SKILL.md skill
 tests/                  # offline suite (FakeProvider-driven)
 ```

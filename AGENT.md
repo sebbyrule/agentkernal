@@ -63,13 +63,14 @@ All documented extension seams are implemented.
 uv sync
 uv run pytest                 # full suite, offline
 uv run agentkernel            # start the interactive REPL (M4+)
+uv run agentkernel tui        # full-screen curses terminal UI over the same runtime
 ```
 
 Configuration loads from `agentkernel.toml` (+ `AGENTKERNEL_*` env overrides). API keys come **only** from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) — never read them from, or write them to, the config file or traces.
 
 ## Do NOT
 
-- Do not add a web UI or any framework. CLI only; keep all logic UI-independent.
+- Do not add a web UI or any framework. Terminal-only (the CLI/REPL and the curses TUI are fine); keep all logic UI-independent so any front end is a thin layer over the same runtime.
 - Do not hardcode provider-specific behavior in `agent.py`, `tools/`, or `context/`.
 - Do not let a tool failure raise out of the loop.
 - Do not log raw tool arguments, file contents, or secrets.

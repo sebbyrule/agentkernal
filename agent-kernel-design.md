@@ -4,7 +4,7 @@
 **Audience:** Claude Code (implementer) and the project owner
 **Scope:** The agent *kernel* only. This is Phase 0 plus the cost-control primitives that must live in the kernel from day one. Everything past the kernel (MCP, skills, profiles, memory, the knowledge graph, self-improvement) is explicitly out of scope here and is designed for only as an extension seam.
 
-Project working name: **agentcore** (rename freely; this name is used for the package throughout).
+Project working name: **agentkernel** (rename freely; this name is used for the package throughout).
 
 ---
 
@@ -41,7 +41,7 @@ Everything a user might call a "feature" — web search, file editing, image gen
 | Self-improvement loop | Phase 7 | Requires the telemetry built here first |
 | Web UI | Not planned | CLI only; keep all logic UI-independent |
 
-Each seam is specified in §13. Implement the interface, not the feature.
+Each seam is specified in §13. Implement the interface, not the feature. *(Status: the kernel is complete and every seam in this table has since been built on top of it — see §13. The rule that mattered held: none of them required changing the loop.)*
 
 ---
 
@@ -93,7 +93,7 @@ These are binding. When a decision is ambiguous, resolve it in favor of the prin
 
 ## 4. Canonical data types
 
-Defined in `agentcore/types.py`. Use stdlib `dataclasses` + `typing`. These types are the lingua franca; nothing outside an adapter speaks a provider's native format.
+Defined in `agentkernel/types.py`. Use stdlib `dataclasses` + `typing`. These types are the lingua franca; nothing outside an adapter speaks a provider's native format.
 
 ```python
 from dataclasses import dataclass, field
@@ -147,14 +147,14 @@ Design notes:
 
 ## 5. Provider abstraction
 
-Defined in `agentcore/providers/`.
+Defined in `agentkernel/providers/`.
 
 ### 5.1 The protocol
 
 ```python
 from typing import Protocol
-from agentcore.types import Message, CompletionResponse
-from agentcore.tools import ToolSpec
+from agentkernel.types import Message, CompletionResponse
+from agentkernel.tools import ToolSpec
 
 class Provider(Protocol):
     name: str
@@ -192,7 +192,7 @@ The owner previously discussed LiteLLM as a way to avoid hand-writing every prov
 
 ## 6. Tool system
 
-Defined in `agentcore/tools/`.
+Defined in `agentkernel/tools/`.
 
 ### 6.1 Tool definition
 
@@ -232,7 +232,7 @@ Use the `jsonschema` package for validation. This is the one validation dependen
 
 ### 6.3 Builtin tools (kernel ships these)
 
-In `agentcore/tools/builtin/`:
+In `agentkernel/tools/builtin/`:
 
 | Tool | File | Flags |
 |---|---|---|
@@ -247,7 +247,7 @@ In `agentcore/tools/builtin/`:
 
 ## 7. The agent loop
 
-Defined in `agentcore/agent.py`.
+Defined in `agentkernel/agent.py`.
 
 ```python
 class Agent:
@@ -331,7 +331,7 @@ This truncation is the same mechanism context management uses (§9) and should b
 
 ## 9. Context management
 
-Defined in `agentcore/context/`.
+Defined in `agentkernel/context/`.
 
 ### 9.1 Accounting
 
@@ -364,7 +364,7 @@ The stable prefix = system prompt + tool definitions. It must be byte-identical 
 
 ## 10. Approval and sandbox
 
-Defined in `agentcore/approval/`.
+Defined in `agentkernel/approval/`.
 
 ### 10.1 Approver protocol
 
@@ -397,7 +397,7 @@ v1 ships `LocalSandbox` (subprocess confined to the working directory, with a ti
 
 ## 11. Configuration
 
-Defined in `agentcore/config.py`.
+Defined in `agentkernel/config.py`.
 
 ```python
 @dataclass
@@ -413,16 +413,18 @@ class Config:
     approval_policy: str = "always_ask"
     working_dir: str = "."
     summarizer_model: str | None = None  # cheap model for compaction; None → structural fallback
-    log_dir: str = ".agentcore/traces"
+    log_dir: str = ".agentkernel/traces"
 ```
 
-Precedence: explicit constructor args > environment variables (`AGENTCORE_*`) > config file (`agentcore.toml`) > defaults. API keys come **only** from the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) and are never written to the config file or the trace.
+The fields above are the kernel core. The implemented `Config` extends them with options for the §13 seams — sandbox (`sandbox`, `sandbox_image`, `sandbox_network`), budget ceilings (`max_cost_usd`, `max_input_tokens_per_run`), memory (`memory_store`, `enable_memory_tools`, `memory_auto_context`, `semantic_search`, `embedding_*`), skills (`skills_dir`, `skills`), profiles, the knowledge graph, sub-agents (`enable_spawn`), and evals. See [`agentkernel.toml.example`](agentkernel.toml.example) for the full set. Every new field follows the same precedence and coercion rules.
+
+Precedence: explicit constructor args > environment variables (`AGENTKERNEL_*`) > config file (`agentkernel.toml`) > defaults. API keys come **only** from the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) and are never written to the config file or the trace.
 
 ---
 
 ## 12. Telemetry
 
-Defined in `agentcore/telemetry.py`. Writes one JSONL file per session under `config.log_dir`.
+Defined in `agentkernel/telemetry.py`. Writes one JSONL file per session under `config.log_dir`.
 
 Each turn record:
 
@@ -449,29 +451,38 @@ Each turn record:
 
 ---
 
-## 13. Extension seams (design only — do not implement)
+## 13. Extension seams (now implemented)
 
-Leave these interfaces in place so later phases plug in without reshaping the kernel.
+These interfaces were specified as seams so later phases could plug in without reshaping the kernel. **All of them are now implemented** — each landed at the edge (a tool, a context injection, or a run parameter) with the loop in `agent.py` unchanged. The seam interfaces are the proof that §6/§7/§9 were right.
 
-- **MCP (Phase 2):** an MCP client discovers remote tools and registers each as a `ToolSpec` (its `handler` issues the MCP call). No loop or registry change required — that's the test of whether §6 is right.
-- **Skills / AGENTS.md (Phase 4):** a `ContextSource` interface with `system_additions() -> str` and `available_skills() -> list[str]`, consulted when assembling the system prompt. Must not disturb prefix stability (§9.3) — skill text joins the cacheable prefix, assembled once per run.
-- **Profiles (Phase 5):** `Profile = (name, system_prompt, tool_filter, model_override, rubric)`. The loop already accepts `profile` in `run()`; v1 ignores everything but may apply `tool_filter`/`system_prompt` if trivially present. An evaluator is a profile whose final output is a structured score.
-- **Memory (Phase 3):** `MemoryStore` with `load(context) -> list[Message]` (pre-run) and `save(session_trace)` (post-run). The Agent calls these around `run` if a store is configured.
-- **Sub-agents:** already enabled by re-entrancy (§7). A future `spawn` tool constructs a child `Agent` and calls `run`.
+- **MCP (Phase 2 — `mcp/`):** a hand-written JSON-RPC-over-stdio client discovers remote tools and registers each as a `ToolSpec` (its `handler` issues the MCP call). No loop or registry change required. Read-only tools (`readOnlyHint`) skip the approval gate.
+- **Skills / AGENTS.md (Phase 4 — `skills.py`):** a `ContextSource` with `system_additions() -> list[str]` and `available_skills() -> list[str]`, consulted when assembling the system prompt. Progressive disclosure: only a name+description catalog sits in the cacheable prefix; the model loads a skill's body on demand via `use_skill`. Prefix stability (§9.3) is preserved — skill text is assembled once per run.
+- **Profiles & evaluators (Phase 5 — `profiles.py`, `evaluation.py`):** `Profile = (name, system_prompt, tool_filter, model_override, rubric)`, loaded from `profiles/<name>.toml`; the loop honors `system_prompt`/`tool_filter`. An evaluator (`agentkernel eval`) runs cases through the agent and judge-scores each answer against a rubric.
+- **Memory (Phase 3 — `memory.py`, `semantic_memory.py`):** `MemoryStore` with `load(session_id) -> list[Message]` (pre-run) and `save(session_id, trace)` (post-run); in-memory, JSONL, and SQLite/FTS5 backends. A separate `NoteStore` powers the `remember`/`recall`/`forget`/`update_memory` tools, with optional dense-embedding semantic recall (`semantic_search`) and a stdlib LSH index. Optional recall is injected before each user message (`memory_auto_context`). The note tools call the store through keyword-only `add`/`search`/`update` so they work identically across the JSONL and SQLite/semantic backends.
+- **Knowledge graph (Phase 6 — `knowledge.py`):** a file-backed triple store exposed only as `graph_*` tools; the kernel keeps no graph state.
+- **Self-improvement (Phase 7 — `improvement.py`):** `agentkernel improve` reads a session trace and asks the model for one concrete rule — built on the telemetry emitted since turn one.
+- **Sub-agents (`subagent.py`):** `enable_spawn` registers a `spawn` tool that constructs a depth-limited child `Agent` and calls `run`, built purely on the loop's re-entrancy (§7).
+- **Loops (`loops.py`):** `agentkernel loop` re-runs the agent on a prompt until a stopping condition (a sandboxed success check and/or an N-in-a-row streak).
 
 ---
 
 ## 14. Module layout
 
+The kernel core is the §4–§12 set; everything below the dividing comment is an
+extension seam from §13, built on the kernel without changing the loop.
+
 ```
-agentcore/
+agentkernel/
   __init__.py
   types.py              # §4 canonical types
   config.py             # §11
   telemetry.py          # §12
   agent.py              # §7 the loop
+  budget.py             # per-run cost/token guard
+  progress.py           # per-turn REPL status lines
   providers/
     base.py             # §5 Provider protocol
+    _http.py            # shared httpx transport (retries + Retry-After)
     anthropic.py
     openai.py
     local.py
@@ -486,17 +497,29 @@ agentcore/
   approval/
     base.py             # §10 Approver, Sandbox protocols
     cli.py              # CliApprover, AutoApprover
-    sandbox.py          # LocalSandbox (+ DockerSandbox TODO)
-  cli.py                # REPL entry point
+    policy.py           # approval policies
+    sandbox.py          # LocalSandbox + DockerSandbox
+  cli.py                # REPL + run/improve/eval/loop/tui entry points
+  # --- §13 extension seams (on top of the kernel) ---
+  mcp/                  # MCP stdio client; registers remote tools as ToolSpecs
+  skills.py             # Anthropic-style SKILL.md skills (progressive disclosure)
+  profiles.py           # run-parameter profiles
+  memory.py             # MemoryStore + JSONL/SQLite notebooks; remember/recall tools
+  semantic_memory.py    # dense embeddings + cosine-ranked recall over SQLite
+  semantic_index.py     # stdlib LSH approximate vector index
+  embeddings.py         # OpenAI-compatible embedding provider
+  knowledge.py          # triple store exposed as graph_* tools
+  improvement.py        # trace -> improvement rule
+  subagent.py           # spawn tool: delegate to a child Agent
+  evaluation.py         # eval harness: judge-scored runs
+  loops.py              # loop-engineering runner (run-until-condition)
+  tui/                  # curses interactive terminal UI (agentkernel tui)
 tests/
   fakes.py              # FakeProvider, scripted responses
-  test_loop.py
-  test_registry.py
-  test_context.py
-  test_tool_result_flow.py
-  test_approval.py
+  test_loop.py, test_registry.py, test_context.py,
+  test_tool_result_flow.py, test_approval.py, test_http.py, … (offline suite)
 pyproject.toml
-agentcore.toml.example
+agentkernel.toml.example
 ```
 
 ---
@@ -521,9 +544,14 @@ agentcore.toml.example
 | **M1 — Real providers + cache** | Anthropic + OpenAI + local adapters; stable cacheable prefix | A real session works against one live provider; cache_read_tokens > 0 on turn 2 |
 | **M2 — Context** | accounting, budget, compaction, shared truncation | A session that exceeds budget compacts and continues without losing the system prompt |
 | **M3 — Approval + sandbox** | `bash`, `CliApprover`, `LocalSandbox`, policies | Shell runs are gated and confined; denial path tested |
-| **M4 — Telemetry + CLI** | JSONL traces, cost table, REPL | `agentcore` starts a chat; each turn appends a redacted trace record |
+| **M4 — Telemetry + CLI** | JSONL traces, cost table, REPL | `agentkernel` starts a chat; each turn appends a redacted trace record |
 
 Ship M0–M4 in order. Each is independently testable. Do not start any out-of-scope phase until M4 is green.
+
+**Status:** the kernel (M0–M4) is complete, and every §13 extension seam has since been
+integrated on top of it (M5: MCP, memory, profiles; M6: skills, knowledge graph,
+self-improvement), plus sub-agents, evaluators, loops, a budget guard, and a curses
+TUI. The whole suite runs offline.
 
 ---
 
