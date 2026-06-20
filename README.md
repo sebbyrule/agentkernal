@@ -35,6 +35,8 @@ API keys are read **only** from the environment — never from config files or t
 export ANTHROPIC_API_KEY=***     # for provider = "anthropic"
 export OPENAI_API_KEY=***        # for provider = "openai" / embeddings
 # local/OpenAI-compatible endpoints (Ollama, vLLM) usually need no key
+# Credential pool: give several keys and the provider rotates on rate limits —
+# comma-separate (ANTHROPIC_API_KEY="k1,k2") or number them (ANTHROPIC_API_KEY_1, _2).
 ```
 
 ## Quick start

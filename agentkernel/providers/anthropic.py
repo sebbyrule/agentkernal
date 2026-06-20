@@ -9,10 +9,10 @@ cache. No Anthropic dict escapes this module except inside ``CompletionResponse.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from agentkernel.providers._http import ProviderError, post_json
+from agentkernel.providers._http import ProviderError, post_json_pooled
+from agentkernel.providers.credentials import CredentialPool
 from agentkernel.tools import ToolSpec
 from agentkernel.types import CompletionResponse, Message, ToolCall, Usage
 
@@ -134,7 +134,10 @@ class AnthropicProvider:
     ) -> None:
         self.model = model
         self.context_window = context_window
-        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self._pool = (
+            CredentialPool([api_key]) if api_key
+            else CredentialPool.from_env("ANTHROPIC_API_KEY")
+        )
 
     def complete(
         self,
@@ -145,7 +148,7 @@ class AnthropicProvider:
         temperature: float = 1.0,
         system: str | None = None,
     ) -> CompletionResponse:
-        if not self._api_key:
+        if self._pool.current() is None:
             raise ProviderError("ANTHROPIC_API_KEY is not set in the environment")
         payload: dict[str, Any] = {
             "model": self.model,
@@ -158,9 +161,16 @@ class AnthropicProvider:
         sys_blocks = render_system(system)
         if sys_blocks is not None:
             payload["system"] = sys_blocks
-        headers = {
-            "x-api-key": self._api_key,
-            "anthropic-version": API_VERSION,
-            "content-type": "application/json",
-        }
-        return parse_response(post_json(API_URL, headers=headers, payload=payload))
+
+        def header_for_key(key: str | None) -> dict[str, str]:
+            return {
+                "x-api-key": key or "",
+                "anthropic-version": API_VERSION,
+                "content-type": "application/json",
+            }
+
+        return parse_response(
+            post_json_pooled(
+                API_URL, header_for_key=header_for_key, payload=payload, pool=self._pool
+            )
+        )

@@ -609,7 +609,7 @@ within each group is rough priority. Nothing here is committed.
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **Credential pools / key rotation** | provider | Accept a list of keys per provider; rotate on `429`/exhaustion (the `_http` transport already classifies these). Config-only, invisible to the loop. |
+| **Credential pools / key rotation** ✅ | provider | **Done** (`providers/credentials.py`). Keys are read from one env var (comma-separated) plus numbered siblings `<VAR>_1..N`; `post_json_pooled` rotates to the next key on a `RateLimitError` (429 after retries), marking the spent one exhausted. A single key is a pool of one, so existing setups are unchanged. Invisible to the loop. |
 | **Reasoning-effort run parameter** | run param | Plumb a `reasoning` level through `run(profile=…)` to providers that support it; ignored by those that don't. |
 | **Model router for auxiliary work** | config | Generalize today's single `summarizer_model` into named roles (summarize / judge / classify-risk) so compaction, evals, and `smart` approval can each pick a cheap model. |
 | **More first-class adapters** | provider | The OpenAI-compatible `local` adapter already covers many endpoints; add thin named adapters (Gemini, OpenRouter, DeepSeek) only where the wire shape genuinely differs. |

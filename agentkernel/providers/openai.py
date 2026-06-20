@@ -9,10 +9,10 @@ OpenAI caches the prefix automatically, so there are no explicit cache markers â
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
-from agentkernel.providers._http import ProviderError, post_json
+from agentkernel.providers._http import ProviderError, post_json_pooled
+from agentkernel.providers.credentials import CredentialPool
 from agentkernel.tools import ToolSpec
 from agentkernel.types import CompletionResponse, Message, ToolCall, Usage
 
@@ -126,7 +126,9 @@ class OpenAIProvider:
         self.context_window = context_window
         self._base_url = base_url.rstrip("/")
         self._require_key = require_key
-        self._api_key = api_key or os.environ.get(env_key)
+        self._pool = (
+            CredentialPool([api_key]) if api_key else CredentialPool.from_env(env_key)
+        )
 
     def complete(
         self,
@@ -137,7 +139,7 @@ class OpenAIProvider:
         temperature: float = 1.0,
         system: str | None = None,
     ) -> CompletionResponse:
-        if self._require_key and not self._api_key:
+        if self._require_key and self._pool.current() is None:
             raise ProviderError(f"API key for provider {self.name!r} is not set")
         payload: dict[str, Any] = {
             "model": self.model,
@@ -147,8 +149,16 @@ class OpenAIProvider:
         }
         if tools:
             payload["tools"] = render_tools(tools)
-        headers = {"content-type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        def header_for_key(key: str | None) -> dict[str, str]:
+            headers = {"content-type": "application/json"}
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+            return headers
+
         url = f"{self._base_url}/chat/completions"
-        return parse_response(post_json(url, headers=headers, payload=payload))
+        return parse_response(
+            post_json_pooled(
+                url, header_for_key=header_for_key, payload=payload, pool=self._pool
+            )
+        )
