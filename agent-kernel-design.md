@@ -620,14 +620,14 @@ within each group is rough priority. Nothing here is committed.
 |---|---|---|
 | **Image input in canonical messages** | canonical types | Extend `Message.content` to allow typed content parts (text + image refs) and teach each adapter to translate them. The biggest single change here — it touches §4 types and every adapter — but still not the loop. Gate behind a capability flag so text-only providers are unaffected. |
 
-### 18.7 Observability & DX
+### 18.7 Observability & DX — ✅ done (completions deferred)
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **`insights` command** | reads telemetry | Aggregate the JSONL traces into a usage/cost/tool-frequency report. Builds entirely on the trace schema we already treat as stable (§12). |
-| **`doctor` command** | standalone | Health check: config validity, provider reachability, sandbox availability, optional deps. Pure diagnostics. |
-| **Plugin discovery seam** | tool registration | Auto-import user tool modules from a `plugins/` dir (a top-level `register()` call), mirroring how MCP and builtins already register identically. |
-| **Shell completions** | CLI | `agentkernel completion bash`/`zsh`. Trivial DX polish. |
+| **`insights` command** ✅ | reads telemetry | **Done** (`insights.py`, `agentkernel insights [--days N]`). Aggregates the JSONL traces into sessions/turns/tokens/cost, a per-model breakdown, and tool-frequency with error counts — pure reading of the stable §12 schema, offline. |
+| **`doctor` command** ✅ | standalone | **Done** (`doctor.py`, `agentkernel doctor`). Network-free checks: Python version, required deps, provider credentials, sandbox (docker CLI), embedding key for semantic search, curses on Windows, writable log dir. Exits non-zero on any failure. |
+| **Plugin discovery seam** ✅ | tool registration | **Done** (`plugins.py`, `enable_plugins`/`plugins_dir`). Auto-imports `plugins/*.py` exposing `tools()` or `TOOLS`; each spec registers like a builtin. A bad plugin is reported, not fatal. Opt-in because importing executes code. |
+| **Shell completions** | CLI | Deferred — `agentkernel completion bash`/`zsh`. Trivial DX polish, low priority. |
 
 ### 18.8 Bundled content & templates (assets, not engine work) — ✅ done
 

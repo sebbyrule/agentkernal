@@ -111,6 +111,21 @@ def build_runtime(
 
         registry.register(clarify_tool())
 
+    # Plugin tools (§18.7): user-authored tools auto-loaded from plugins_dir.
+    if config.enable_plugins:
+        from agentkernel.plugins import load_plugin_tools
+
+        def _warn_plugin(path, exc):
+            print(f"[plugin load failed: {path.name}] {exc}", file=sys.stderr)
+
+        for spec in load_plugin_tools(
+            config.plugins_dir, working_dir=config.working_dir, on_error=_warn_plugin
+        ):
+            if registry.spec(spec.name) is None:
+                registry.register(spec)
+            else:
+                print(f"[plugin tool skipped: {spec.name!r} already registered]", file=sys.stderr)
+
     mcp_clients = register_mcp_servers(
         registry, list(mcp_servers or []), log_dir=config.mcp_log_dir
     )
@@ -759,6 +774,13 @@ def main(argv: list[str] | None = None) -> int:
     loop_parser.add_argument(
         "--streak", type=int, help="consecutive successes required to stop"
     )
+    insights_parser = subparsers.add_parser(
+        "insights", help="aggregate session traces into a usage/cost report"
+    )
+    insights_parser.add_argument(
+        "--days", type=int, help="only include records from the last N days"
+    )
+    subparsers.add_parser("doctor", help="check config, dependencies, and credentials")
     new_parser = subparsers.add_parser(
         "new", help="scaffold a skill, profile, loop, or eval suite from a template"
     )
@@ -785,6 +807,20 @@ def main(argv: list[str] | None = None) -> int:
         config.skills = list(dict.fromkeys(config.skills + args.skill))
     if args.model:
         config.model = args.model
+
+    # `insights` and `doctor` read config but need no provider/runtime (§18.7).
+    if command == "insights":
+        from agentkernel.insights import aggregate_traces, format_insights
+
+        days = getattr(args, "days", None)
+        print(format_insights(aggregate_traces(config.log_dir, days=days), days=days))
+        return 0
+    if command == "doctor":
+        from agentkernel.doctor import format_checks, has_failures, run_checks
+
+        checks = run_checks(config)
+        print(format_checks(checks))
+        return 1 if has_failures(checks) else 0
 
     # Load profile early so its model_override and rubric feed into config for
     # every command (run, repl, eval, loop, improve).

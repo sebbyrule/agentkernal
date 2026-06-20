@@ -48,6 +48,8 @@ uv run agentkernel improve                    # reflect on the latest trace, wri
 uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
 uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report
 uv run agentkernel loop --file l.toml         # run a workflow loop until its stopping condition
+uv run agentkernel insights --days 30         # aggregate session traces into a usage/cost report
+uv run agentkernel doctor                     # check config, deps, credentials, sandbox
 uv run agentkernel new skill my-skill         # scaffold a skill/profile/loop/eval from a template
 uv run agentkernel --profile reviewer run "review src/"  # run with a bundled profile
 uv run agentkernel --skill code-review repl   # start REPL with a skill pinned
@@ -127,6 +129,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `redact_tool_output` | `True` | scrub secret-looking strings from tool results before they enter context/traces |
 | `checkpoints` | `False` | back up files before edits and register a `rollback` tool to undo them |
 | `enable_todo` / `enable_clarify` | `False` | register the in-session `todo` planning tool / the `clarify` ask-the-user tool |
+| `enable_plugins` / `plugins_dir` | `False` / `plugins` | auto-load user tool modules from `plugins_dir` (executes their code) |
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |
 | `log_dir` | `.agentkernel/traces` | where session traces are written |
