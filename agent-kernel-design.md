@@ -562,3 +562,98 @@ TUI. The whole suite runs offline.
 - No feature from §1.3. Leave the seam; move on.
 - Secrets only from env; never logged raw; never written to config or traces.
 - Keep the cacheable prefix stable — re-sorting tools silently destroys cache hit-rate and is hard to notice without the telemetry in §12.
+
+---
+
+## 18. Roadmap
+
+Candidate features, gathered partly by studying mature terminal agents (e.g.
+Hermes Agent, Claude Code) and filtered through this kernel's one test: **every
+item must land as a tool, a context injection, or a run parameter — never as a
+change to the loop in `agent.py`.** Anything that fails that test (a messaging
+gateway, a voice stack) belongs in a separate package that *consumes* the kernel,
+not inside it; those are listed last so the boundary stays explicit. Ordering
+within each group is rough priority. Nothing here is committed.
+
+### 18.1 Safety & trust (highest leverage, smallest surface)
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **`smart` approval mode** | approver | A third policy beside `always_ask`/`auto_allow`/`deny_mutations`: an auxiliary cheap model classifies each gated call's risk and auto-approves the low-risk ones, prompting only on the rest. Reuses the existing `summarizer_model` plumbing; falls back to `always_ask` if the judge is unreachable. |
+| **Secret redaction of tool *output*** | result post-processing | We already redact telemetry args; extend the single truncation point (§8.4) to also scrub strings that look like keys/tokens from tool results *before* they enter context. One regex pass, no deps, big safety win for `bash`/`read_file`/web tools. |
+| **Filesystem checkpoints + `rollback`** | tool + run param | Snapshot the working dir (git stash-like, or a copy) before a batch of mutations; a `rollback` tool / `--checkpoints` flag restores it. Makes destructive runs reversible without trusting the model's own cleanup. |
+
+### 18.2 Durable & scheduled execution
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **Scheduled runs (cron)** | external driver | A small durable scheduler that invokes `Agent.run` on a cron/interval and writes the result to a trace. Pure orchestration around the existing entry point — a `agentkernel cron` CLI, no loop change. |
+| **Background / detached runs** | external driver | `agentkernel run --background "…"` that fire-and-forgets a run and records completion. Pairs naturally with cron. |
+| **Session store + resume** | memory seam | Promote the JSONL transcript store into addressable sessions: `sessions list/show/resume <id>`. Builds directly on the Phase-3 `MemoryStore`; resume = load that session's messages before the loop. |
+
+### 18.3 Multi-agent
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **Git worktree isolation for `spawn`** | sub-agent tool | When a spawned child edits code, run it in a throwaway `git worktree` so parallel children don't collide. Extends the existing depth-limited `spawn` (§13) — no new concept, just an isolation flag. |
+| **Work-queue (kanban-lite)** | tool + driver | A durable SQLite board of tasks that worker sub-agents claim, complete, or block. Lets a long mission fan out across many bounded runs. Heavier; only worthwhile once `spawn` + sessions land. |
+
+### 18.4 In-session tools (cheap, high-utility)
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **`todo` tool** | tool | In-session task list the model maintains (add/complete/list). Keeps multi-step plans legible to both the model and the user; pure in-memory state, trivially testable. |
+| **`clarify` tool** | tool (over the approver/input seam) | Lets the model ask the user a focused question mid-run instead of guessing, routed through the same CLI input channel the approver uses. No-op (auto-skip) in non-interactive `run`. |
+
+### 18.5 Provider & model layer
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **Credential pools / key rotation** | provider | Accept a list of keys per provider; rotate on `429`/exhaustion (the `_http` transport already classifies these). Config-only, invisible to the loop. |
+| **Reasoning-effort run parameter** | run param | Plumb a `reasoning` level through `run(profile=…)` to providers that support it; ignored by those that don't. |
+| **Model router for auxiliary work** | config | Generalize today's single `summarizer_model` into named roles (summarize / judge / classify-risk) so compaction, evals, and `smart` approval can each pick a cheap model. |
+| **More first-class adapters** | provider | The OpenAI-compatible `local` adapter already covers many endpoints; add thin named adapters (Gemini, OpenRouter, DeepSeek) only where the wire shape genuinely differs. |
+
+### 18.6 Multimodality
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **Image input in canonical messages** | canonical types | Extend `Message.content` to allow typed content parts (text + image refs) and teach each adapter to translate them. The biggest single change here — it touches §4 types and every adapter — but still not the loop. Gate behind a capability flag so text-only providers are unaffected. |
+
+### 18.7 Observability & DX
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **`insights` command** | reads telemetry | Aggregate the JSONL traces into a usage/cost/tool-frequency report. Builds entirely on the trace schema we already treat as stable (§12). |
+| **`doctor` command** | standalone | Health check: config validity, provider reachability, sandbox availability, optional deps. Pure diagnostics. |
+| **Plugin discovery seam** | tool registration | Auto-import user tool modules from a `plugins/` dir (a top-level `register()` call), mirroring how MCP and builtins already register identically. |
+| **Shell completions** | CLI | `agentkernel completion bash`/`zsh`. Trivial DX polish. |
+
+### 18.8 Bundled content & templates (assets, not engine work)
+
+The skills (§13, Phase 4) and profiles (§13, Phase 5) *machinery* is built and
+tested, but almost nothing ships through it: there is a single example skill
+(`examples/skills/code-review/`), no `profiles/` directory at all (only the
+in-code `default`), and no scaffolding for authoring more. The engine works; the
+library is empty. This group fills it. None of it touches the kernel — skills are
+context injections, profiles are run parameters, templates are inert files.
+
+| Idea | Seam | Notes |
+|---|---|---|
+| **A starter skills library** | context injection | Ship a curated set of `SKILL.md` skills in the default `skills/` dir so they're discovered out of the box, not just an example. Candidates: `code-review` (promote the example), `debug-triage`, `write-tests`, `refactor`, `commit-and-pr` (Conventional Commits + PR body), `document`, `research-summarize`, `security-review`. Each stays small with progressive disclosure — name+description in the prefix, body loaded on demand. |
+| **A set of named profiles** | run parameter | Populate `profiles/` with ready-to-use parameterizations beyond `default`. Candidates: `reviewer` (read-only tool filter + review system prompt + rubric), `coder` (full tools), `researcher` (read/search/web tools, mutations denied), `planner` (no tools, plan-only), `safe` (minimal locked-down toolset). Each is a small TOML — `(system_prompt, tool_filter, model_override, rubric)`. |
+| **A starter loops library** | external driver | Like skills and profiles, the loop runner (`loops.py`, `agentkernel loop`) is built and tested but ships only one example (`examples/loops/until-tests-pass.toml`). Add a curated `loops/` set following action → check → iterate → stop, each with a sandboxed `success_check` and/or `success_streak`: `until-tests-pass` (promote the example), `until-lint-clean`, `until-typecheck-clean`, `until-build-succeeds`, `review-and-fix` (run a review, apply fixes, repeat until clean). Pure TOML over the existing runner — no engine change. |
+| **Reusable templates** | DX / scaffolding | A `templates/` directory of annotated skeletons for the things users author repeatedly: `SKILL.md`, a profile TOML, an eval suite, a loop TOML, an `[[mcp_servers]]` block, and a builtin-style tool module. Each is a copy-paste starting point with inline comments explaining every field. |
+| **`new` scaffolding command** | CLI / DX | `agentkernel new skill <name>` / `new profile <name>` / `new eval <name>` / `new loop <name>` copies the matching template into place with the name filled in. Turns the templates above into a one-liner; pure file generation, no loop involvement. |
+| **A shareable bundle format** | packaging | Optional: a convention for packaging a skill (its `SKILL.md` + bundled files) as a single archive so skills can be shared/installed between projects, mirroring how MCP servers are declared once and reused. Only worth doing once the library above exists and people want to trade skills. |
+
+### 18.9 Explicitly out of the kernel (separate packages)
+
+These are valuable but violate "terminal-only, UI-independent, dependency-light."
+They should live in their own packages built *on* the kernel, exactly as §13's
+seams predicted — listed here so the boundary is a deliberate choice, not an
+oversight.
+
+- **Messaging gateway** (Telegram/Discord/Slack/etc.) — a long-running service that maps platform events to `Agent.run`. Big dependency surface; belongs outside.
+- **Voice (STT/TTS)** — an I/O layer around the CLI, not a kernel concern.
+- **Curator (skill lifecycle)** — background maintenance of agent-authored skills. Plausible as a sidecar to the skills layer, but it's a service with its own state and schedule, so it sits beside the kernel rather than in it.
