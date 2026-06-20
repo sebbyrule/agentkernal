@@ -1,9 +1,13 @@
 """Approval-policy decision, shared by every Approver (design §10.2).
 
-Policies: ``always_ask`` (default), ``auto_allow``, ``deny_mutations``. An
-optional allowlist of patterns (matched against the tool name and, for shell
-tools, the command) skips the gate. The loop only consults an approver for
-gated tools, but ``decide`` stays safe for non-gated ones too.
+Policies: ``always_ask`` (default), ``auto_allow``, ``deny_mutations``, and
+``smart``. An optional allowlist of patterns (matched against the tool name and,
+for shell tools, the command) skips the gate. The loop only consults an approver
+for gated tools, but ``decide`` stays safe for non-gated ones too.
+
+``smart`` resolves here to ``ask`` (the safe default); the approver, which has a
+provider, may consult a risk judge before that prompt and auto-approve low-risk
+calls. ``decide`` is pure and has no model, so the judging lives in the approver.
 """
 
 from __future__ import annotations

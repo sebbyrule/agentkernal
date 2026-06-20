@@ -145,7 +145,18 @@ def build_runtime(
         keep_recent_turns=config.keep_recent_turns,
         summarizer=summarizer,
     )
-    approver = CliApprover(config.approval_policy, allowlist=config.approval_allowlist)
+    # `smart` approval consults a cheap risk judge before prompting (§18.1).
+    risk_judge = None
+    if config.approval_policy == "smart":
+        from agentkernel.approval.risk import RiskJudge
+
+        judge_model = config.approval_judge_model or config.summarizer_model or config.model
+        risk_judge = RiskJudge(make_provider(replace(config, model=judge_model)))
+    approver = CliApprover(
+        config.approval_policy,
+        allowlist=config.approval_allowlist,
+        risk_judge=risk_judge,
+    )
 
     # Sub-agent delegation (design §13): the model can spawn focused children.
     # base_specs snapshots the tools BEFORE spawn so spawn isn't self-recursive

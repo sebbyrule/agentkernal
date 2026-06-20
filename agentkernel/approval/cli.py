@@ -15,6 +15,7 @@ from agentkernel.approval.policy import decide
 from agentkernel.types import ToolCall
 
 if TYPE_CHECKING:
+    from agentkernel.approval.risk import RiskJudge
     from agentkernel.tools import ToolSpec
 
 
@@ -40,10 +41,12 @@ class AutoApprover:
         *,
         allowlist: list[str] | None = None,
         ask_default: bool = True,
+        risk_judge: RiskJudge | None = None,
     ) -> None:
         self._policy = policy
         self._allowlist = allowlist or []
         self._ask_default = ask_default
+        self._risk_judge = risk_judge
 
     def approve(self, call: ToolCall, spec: ToolSpec) -> bool:
         decision = decide(self._policy, spec, call, self._allowlist)
@@ -51,6 +54,12 @@ class AutoApprover:
             return True
         if decision == "deny":
             return False
+        if (
+            self._policy == "smart"
+            and self._risk_judge is not None
+            and self._risk_judge.is_low_risk(call, spec) is True
+        ):
+            return True
         return self._ask_default
 
     def approve_plan(self, calls: list[ToolCall], specs: list[ToolSpec | None]) -> bool:
@@ -76,11 +85,13 @@ class CliApprover:
         allowlist: list[str] | None = None,
         input_fn: Callable[[str], str] = input,
         output_fn: Callable[[str], None] = print,
+        risk_judge: RiskJudge | None = None,
     ) -> None:
         self._policy = policy
         self._allowlist = allowlist or []
         self._input = input_fn
         self._output = output_fn
+        self._risk_judge = risk_judge
 
     def approve(self, call: ToolCall, spec: ToolSpec) -> bool:
         decision = decide(self._policy, spec, call, self._allowlist)
@@ -89,6 +100,15 @@ class CliApprover:
         if decision == "deny":
             self._output(f"Denied by policy: {_summarize(call)}")
             return False
+        # smart mode: let the risk judge auto-approve clearly low-risk calls;
+        # high-risk or undecided falls through to the human prompt.
+        if (
+            self._policy == "smart"
+            and self._risk_judge is not None
+            and self._risk_judge.is_low_risk(call, spec) is True
+        ):
+            self._output(f"Auto-approved (low risk): {_summarize(call)}")
+            return True
         answer = self._input(f"Approve {_summarize(call)}? [y/N] ").strip().lower()
         return answer in ("y", "yes")
 

@@ -579,7 +579,7 @@ within each group is rough priority. Nothing here is committed.
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **`smart` approval mode** | approver | A third policy beside `always_ask`/`auto_allow`/`deny_mutations`: an auxiliary cheap model classifies each gated call's risk and auto-approves the low-risk ones, prompting only on the rest. Reuses the existing `summarizer_model` plumbing; falls back to `always_ask` if the judge is unreachable. |
+| **`smart` approval mode** ✅ | approver | **Done** (`approval/risk.py`, `approval_policy = "smart"`). A `RiskJudge` (cheap model, defaults to `summarizer_model` then `model`) classifies each gated call; the approver auto-approves low-risk ones and prompts on high-risk. Conservative: any judge error or unparseable reply falls back to asking. |
 | **Secret redaction of tool *output*** ✅ | result post-processing | **Done** (`redaction.py`, `redact_tool_output` config, on by default). Scrubs known token formats (provider key prefixes, PEM blocks, `Authorization` headers, labelled `secret=…` assignments) from tool results at the single §8.4 processing point — before truncation, so a secret can't be split past the cap — and thus before they reach context or traces. Stdlib-only. |
 | **Filesystem checkpoints + `rollback`** | tool + run param | Snapshot the working dir (git stash-like, or a copy) before a batch of mutations; a `rollback` tool / `--checkpoints` flag restores it. Makes destructive runs reversible without trusting the model's own cleanup. |
 

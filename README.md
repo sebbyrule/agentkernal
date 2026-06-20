@@ -121,8 +121,9 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `max_iterations` | `25` | loop guard against runaway sessions |
 | `keep_recent_turns` | `6` | turns kept verbatim during compaction |
 | `max_tool_result_tokens` | `4096` | per-result truncation cap |
-| `approval_policy` | `always_ask` | `always_ask` \| `auto_allow` \| `deny_mutations` |
+| `approval_policy` | `always_ask` | `always_ask` \| `auto_allow` \| `deny_mutations` \| `smart` |
 | `approval_allowlist` | `[]` | patterns that skip the approval prompt |
+| `approval_judge_model` | `None` | model that judges call risk under `smart` (defaults to `summarizer_model`, then `model`) |
 | `redact_tool_output` | `True` | scrub secret-looking strings from tool results before they enter context/traces |
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |

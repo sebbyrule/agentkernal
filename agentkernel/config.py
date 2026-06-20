@@ -28,7 +28,8 @@ class Config:
     max_iterations: int = 25
     keep_recent_turns: int = 6
     max_tool_result_tokens: int = 4096
-    approval_policy: str = "always_ask"  # always_ask | auto_allow | deny_mutations
+    approval_policy: str = "always_ask"  # always_ask | auto_allow | deny_mutations | smart
+    approval_judge_model: str | None = None  # model for `smart` risk judging (§18.1)
     redact_tool_output: bool = True  # scrub secret-looking strings from tool results (§18.1)
     approval_allowlist: list[str] = field(default_factory=list)  # patterns that skip the gate
     plan_mode: bool = False              # batch-approve the whole tool plan at once

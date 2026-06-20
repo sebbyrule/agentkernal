@@ -13,8 +13,9 @@ max_iterations = 25
 keep_recent_turns = 6
 max_tool_result_tokens = 4096
 
-approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations
+approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations | smart
 # approval_allowlist = []             # patterns that skip the gate
+# approval_judge_model = "claude-haiku-4-5-20251001"  # risk judge for approval_policy = "smart"
 # redact_tool_output = true           # scrub secret-looking strings from tool output (default on)
 # plan_mode = false                   # batch-approve all tools at once
 working_dir = "."
