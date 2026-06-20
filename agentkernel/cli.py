@@ -49,7 +49,7 @@ from agentkernel.tools.builtin import default_tools
 
 _BANNER = (
     "agentkernel REPL - type your message and press enter. Commands: /exit, "
-    "/clear, /system, /profile, /skills, /skill, /tools, /trace, /cost, /memory."
+    "/clear, /system, /profile, /skills, /skill, /tools, /trace, /cost, /memory, /improve."
 )
 _PROMPT = "> "
 _EXIT_WORDS = {"exit", "quit", ":q"}
@@ -313,6 +313,20 @@ def _handle_slash(
             return True
         output_fn("usage: /memory [list [limit]|delete <note_id>|export [path]|reindex]")
         return True
+
+    if cmd == "improve":
+        trace_arg = arg.strip() if arg else ""
+        trace_path: str | None = trace_arg or None
+        if not trace_path:
+            telemetry = agent.telemetry
+            trace_path = getattr(telemetry, "path", None)
+            if trace_path:
+                trace_path = str(trace_path)
+        try:
+            return run_improve(config, trace=trace_path, output_fn=output_fn)
+        except Exception as exc:
+            output_fn(f"[improve error] {exc}")
+            return True
 
     output_fn(f"[unknown command: /{cmd}]")
     return True
