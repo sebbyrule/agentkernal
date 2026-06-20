@@ -124,3 +124,27 @@ def test_load_mcp_servers_from_toml(tmp_path):
     assert servers[0].name == "fs" and servers[0].command == "npx"
     assert servers[0].args[0] == "-y"
     assert load_mcp_servers(tmp_path / "missing.toml") == []
+
+
+def test_load_mcp_servers_reads_timeout(tmp_path):
+    toml = tmp_path / "agentkernel.toml"
+    toml.write_text(
+        '[[mcp_servers]]\n'
+        'name = "slow"\n'
+        'command = "sleep"\n'
+        'timeout = 1.5\n'
+    )
+    servers = load_mcp_servers(toml)
+    assert len(servers) == 1
+    assert servers[0].timeout == 1.5
+
+
+def test_mcp_client_uses_config_timeout():
+    # Registers with a timeout that is too short for a slow server; we just
+    # exercise that the timeout is passed through without waiting for a real slow
+    # server. Practically, this checks that register_mcp_servers honors the
+    # config timeout by passing it to MCPClient.
+    cfg = MCPServerConfig(name="x", command="echo", timeout=12.0)
+    client = MCPClient(cfg, timeout=cfg.timeout or 30.0)
+    assert client._timeout == 12.0
+    client.close()

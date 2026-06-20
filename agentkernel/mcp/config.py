@@ -6,6 +6,7 @@ Servers are declared in the config TOML as an array of tables:
     name = "filesystem"
     command = "npx"
     args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    timeout = 60
 
     [[mcp_servers]]
     name = "git"
@@ -33,6 +34,7 @@ class MCPServerConfig:
     args: list[str] = field(default_factory=list)
     env: dict[str, str] | None = None
     cwd: str | None = None
+    timeout: float | None = None  # seconds; falls back to MCPClient default (30)
 
 
 def load_mcp_servers(config_file: str | Path) -> list[MCPServerConfig]:
@@ -51,6 +53,7 @@ def load_mcp_servers(config_file: str | Path) -> list[MCPServerConfig]:
                 args=list(entry.get("args", [])),
                 env=entry.get("env"),
                 cwd=entry.get("cwd"),
+                timeout=entry.get("timeout"),
             )
         )
     return servers

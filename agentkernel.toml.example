@@ -41,7 +41,7 @@ log_dir = ".agentkernel/traces"
 # memory_notes_path = ".agentkernel/memory/notes.jsonl"
 #                                     # use a .db extension for SQLite-backed notes
 # enable_memory_tools = false       # remember/recall/forget tools
-# memory_auto_context = false       # auto-inject relevant notes into each user message
+# memory_auto_context = false       # auto-inject relevant notes into user message
 # memory_auto_context_limit = 3     # max notes per auto-recall
 # memory_store_budget = 4000        # summarize older turns before persisting
 
@@ -86,6 +86,7 @@ log_dir = ".agentkernel/traces"
 # name = "filesystem"
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+# timeout = 30                       # request timeout in seconds
 #
 # [[mcp_servers]]
 # name = "git"

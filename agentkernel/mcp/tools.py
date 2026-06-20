@@ -80,7 +80,7 @@ def register_mcp_servers(
     clients: list[MCPClient] = []
     try:
         for server in servers:
-            client = MCPClient(server).connect()
+            client = MCPClient(server, timeout=server.timeout or 30.0).connect()
             clients.append(client)
             for spec in mcp_tool_specs(client):
                 registry.register(spec)
