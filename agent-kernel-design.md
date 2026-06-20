@@ -583,12 +583,12 @@ within each group is rough priority. Nothing here is committed.
 | **Secret redaction of tool *output*** ✅ | result post-processing | **Done** (`redaction.py`, `redact_tool_output` config, on by default). Scrubs known token formats (provider key prefixes, PEM blocks, `Authorization` headers, labelled `secret=…` assignments) from tool results at the single §8.4 processing point — before truncation, so a secret can't be split past the cap — and thus before they reach context or traces. Stdlib-only. |
 | **Filesystem checkpoints + `rollback`** ✅ | tool + run param | **Done** (`checkpoint.py`, `checkpoints` config). The file tools record a file's pre-edit bytes (once, keeping the earliest) before write/edit; the `rollback` tool restores every recorded file and deletes ones created since. Makes destructive runs reversible without trusting the model's own cleanup. Per-session, in memory. |
 
-### 18.2 Durable & scheduled execution
+### 18.2 Durable & scheduled execution — ✅ done
 
 | Idea | Seam | Notes |
 |---|---|---|
 | **Scheduled runs (cron)** ✅ | external driver | **Done** (`cron.py`, `agentkernel cron list/add/remove/run/tick`). A JSON-backed job store with interval schedules (`30m`, `2h`, `1d`, …); `cron tick` runs whatever is due once and exits, so an OS scheduler drives it — no daemon. A job that errors is still marked run so it won't re-fire every tick. 5-field cron expressions deferred. |
-| **Background / detached runs** | external driver | `agentkernel run --background "…"` that fire-and-forgets a run and records completion. Pairs naturally with cron. |
+| **Background / detached runs** ✅ | external driver | **Done** (`run --background`, `__main__.py`). Re-invokes `python -m agentkernel run <prompt>` as a fully detached process (platform-appropriate flags) with output redirected to `.agentkernel/background/<id>.out`; the parent returns immediately. |
 | **Session store + resume** ✅ | memory seam | **Done** (`sessions list/show/delete`, `--resume <id>`). Builds directly on the Phase-3 `MemoryStore`: `--resume` reuses the session id for telemetry, so the agent's pre-run memory load (§7) replays that transcript and subsequent saves append to it. Needs a memory store configured. |
 
 ### 18.3 Multi-agent

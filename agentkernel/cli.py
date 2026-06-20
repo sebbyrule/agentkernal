@@ -553,6 +553,59 @@ def run_sessions(
     return 0
 
 
+def run_background(
+    prompt: str,
+    *,
+    config_path: str = "agentkernel.toml",
+    log_dir: str = ".agentkernel/traces",
+    spawn=None,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Launch ``agentkernel run <prompt>`` as a detached process (§18.2).
+
+    Output is redirected to a file under ``<log_dir>/../background/``. The child
+    is fully detached so it survives this process exiting. ``spawn`` is injectable
+    for tests; by default it is a platform-appropriate ``subprocess.Popen``.
+    """
+    import subprocess
+    import sys
+    import uuid
+
+    if not prompt.strip():
+        output_fn("[background] nothing to run (empty prompt)")
+        return 1
+
+    out_dir = Path(log_dir).parent / "background"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{uuid.uuid4().hex[:8]}.out"
+    argv = [sys.executable, "-m", "agentkernel", "--config", config_path, "run", prompt]
+
+    def _default_spawn(args, *, stdout):
+        kwargs = {
+            "stdout": stdout,
+            "stderr": subprocess.STDOUT,
+            "stdin": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            kwargs["start_new_session"] = True
+        return subprocess.Popen(args, **kwargs)
+
+    launcher = spawn or _default_spawn
+    handle = out_path.open("w", encoding="utf-8")
+    try:
+        proc = launcher(argv, stdout=handle)
+    finally:
+        # The child holds its own copy of the fd; we can close ours.
+        handle.close()
+    pid = getattr(proc, "pid", "?")
+    output_fn(f"[background] started (pid {pid}); output -> {out_path}")
+    return 0
+
+
 def _cron_run_one(config: Config, prompt: str) -> str:
     """Run one cron job's prompt through a fresh runtime and return the answer."""
     sandbox = make_sandbox(
@@ -888,6 +941,11 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = subparsers.add_parser("run", help="single non-interactive run")
     run_parser.add_argument("prompt", nargs="?", help="text prompt")
     run_parser.add_argument("--file", help="path to a file containing the prompt")
+    run_parser.add_argument(
+        "--background",
+        action="store_true",
+        help="run detached in the background; output goes to a file",
+    )
     improve_parser = subparsers.add_parser(
         "improve", help="reflect on a session trace and write an improvement note"
     )
@@ -988,6 +1046,9 @@ def main(argv: list[str] | None = None) -> int:
         return run_sessions(config, args.action, getattr(args, "session_id", None))
     if command == "cron":
         return run_cron(config, args.action, args.rest)
+    if command == "run" and getattr(args, "background", False):
+        prompt = _read_prompt_file(args.file) if args.file else (args.prompt or "")
+        return run_background(prompt, config_path=args.config, log_dir=config.log_dir)
 
     # Load profile early so its model_override and rubric feed into config for
     # every command (run, repl, eval, loop, improve).

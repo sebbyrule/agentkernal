@@ -46,6 +46,7 @@ uv run agentkernel                            # interactive REPL (default)
 uv run agentkernel tui                        # full-screen curses terminal UI
 uv run agentkernel run "your prompt"          # single non-interactive run, prints the answer
 uv run agentkernel run --file task.md         # single run from a prompt file
+uv run agentkernel run --background "..."      # detached run; output goes to a file
 uv run agentkernel improve                    # reflect on the latest trace, write a rule note
 uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
 uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report
