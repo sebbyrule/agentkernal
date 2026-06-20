@@ -30,13 +30,14 @@ from agentkernel.mcp import MCPClient, MCPError, load_mcp_servers, register_mcp_
 from agentkernel.mcp.config import MCPServerConfig
 from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
 from agentkernel.memory import (
-    MemoryNotes,
+    NoteStore,
     MemoryStore,
     make_memory_store,
     make_memory_tools,
+    make_note_store,
 )
-from agentkernel.progress import ProgressTelemetry
 from agentkernel.profiles import Profile, load_profile
+from agentkernel.progress import ProgressTelemetry
 from agentkernel.providers import ProviderError, make_provider
 from agentkernel.skills import DirectorySkillStore, make_skill_tool
 from agentkernel.subagent import make_spawn_tool
@@ -99,9 +100,9 @@ def build_runtime(
             config.memory_dir or ".agentkernel/memory",
         )
 
-    notes: MemoryNotes | None = None
+    notes: NoteStore | None = None
     if config.enable_memory_tools:
-        notes = MemoryNotes(config.memory_notes_path)
+        notes = make_note_store(config.memory_notes_path)
         for spec in make_memory_tools(notes, store=memory):
             registry.register(spec)
 

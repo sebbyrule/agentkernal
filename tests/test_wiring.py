@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from agentkernel.cli import build_runtime, repl, run_improve
 from agentkernel.config import Config
+from agentkernel.memory import SqliteNoteStore
 from agentkernel.skills import DirectorySkillStore
 
 from tests.fakes import FakeProvider, text_response
@@ -85,6 +86,19 @@ def test_build_runtime_injects_session_search_when_sqlite(tmp_path):
         names = {s.name for s in agent.registry.specs()}
         assert "search_sessions" in names
         assert "list_sessions" in names
+    finally:
+        _teardown(telemetry, clients)
+
+
+def test_build_runtime_selects_sqlite_note_store_for_db_path(tmp_path):
+    cfg = _cfg(
+        tmp_path,
+        enable_memory_tools=True,
+        memory_notes_path=str(tmp_path / "notes.db"),
+    )
+    agent, telemetry, clients = build_runtime(cfg)
+    try:
+        assert isinstance(agent.notes, SqliteNoteStore)
     finally:
         _teardown(telemetry, clients)
 

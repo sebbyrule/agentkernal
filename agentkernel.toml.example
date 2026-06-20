@@ -36,6 +36,8 @@ log_dir = ".agentkernel/traces"
 # Memory (Phase 3): persist/recall conversation across runs.
 # memory_store = "file"             # "file" | "sqlite" | "memory"
 # memory_dir = ".agentkernel/memory"
+# memory_notes_path = ".agentkernel/memory/notes.jsonl"
+#                                     # use a .db extension for SQLite-backed notes
 # enable_memory_tools = false       # remember/recall/forget tools
 # memory_auto_context = false       # auto-inject relevant notes into each user message
 # memory_auto_context_limit = 3     # max notes per auto-recall

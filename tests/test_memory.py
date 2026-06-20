@@ -11,6 +11,7 @@ from agentkernel.memory import (
     FileMemoryStore,
     InMemoryMemoryStore,
     MemoryNotes,
+    SqliteNoteStore,
     _normalize_token,
 )
 from agentkernel.types import Message, ToolCall, ToolResult
@@ -427,3 +428,76 @@ def test_sqlite_memory_store_search_sessions(tmp_path):
     results = store.search_sessions("pizza")
     assert sorted(results) == ["alpha", "beta"]
     store.close()
+
+
+def test_sqlite_note_store_add_and_search(tmp_path):
+    notes = SqliteNoteStore(tmp_path / "notes.db")
+    notes.add("the user prefers dark mode")
+    notes.add("the repo uses Python 3.12")
+    results = notes.search("dark mode")
+    assert len(results) == 1
+    assert "dark mode" in results[0].text
+    notes.close()
+
+
+def test_sqlite_note_store_persists_across_instances(tmp_path):
+    path = tmp_path / "notes.db"
+    notes = SqliteNoteStore(path)
+    notes.add("remember across runs")
+    results = notes.search("across")
+    assert len(results) == 1
+    assert results[0].access_count == 1
+    notes.close()
+
+    notes2 = SqliteNoteStore(path)
+    all_notes = notes2.all()
+    assert len(all_notes) == 1
+    assert all_notes[0].access_count == 1
+    notes2.close()
+
+
+def test_sqlite_note_store_update_and_forget(tmp_path):
+    notes = SqliteNoteStore(tmp_path / "notes.db")
+    n = notes.add("old version")
+    updated = notes.update(n.note_id, "new version", tags=["updated"])
+    assert updated is not None
+    assert updated.text == "new version"
+    assert updated.tags == ["updated"]
+    assert notes.search("new version")[0].text == "new version"
+    notes.forget(note_id=n.note_id)
+    assert notes.all() == []
+    notes.close()
+
+
+def test_sqlite_note_store_deduplicate(tmp_path):
+    notes = SqliteNoteStore(tmp_path / "notes.db")
+    n1 = notes.add("shared fact", tags=["a"])
+    notes.add("shared fact", tags=["b"])
+    # Recall both notes so each gets an access_count.
+    notes.search("shared")
+    removed = notes.deduplicate()
+    assert removed == 1
+    remaining = notes.all()
+    assert len(remaining) == 1
+    assert remaining[0].note_id == n1.note_id
+    assert sorted(remaining[0].tags) == ["a", "b"]
+    assert remaining[0].access_count == 2
+    notes.close()
+
+
+def test_sqlite_note_store_export(tmp_path):
+    notes = SqliteNoteStore(tmp_path / "notes.db")
+    notes.add("fact one")
+    dest = notes.export(tmp_path / "notes.md")
+    content = dest.read_text()
+    assert "fact one" in content
+    notes.close()
+
+
+def test_make_note_store_selects_backend_by_extension(tmp_path):
+    from agentkernel.memory import make_note_store
+
+    db_store = make_note_store(tmp_path / "foo.db")
+    assert isinstance(db_store, SqliteNoteStore)
+    jsonl_store = make_note_store(tmp_path / "foo.jsonl")
+    assert isinstance(jsonl_store, MemoryNotes)

@@ -7,12 +7,10 @@ interface; concrete stores decide what to persist and how to recall it.
 All stores operate on canonical ``Message`` objects so the loop never learns
 where memory came from.
 
-This module also exposes a model-controlled ``MemoryNotes`` notebook: discrete
-facts the *model* chooses to write and read on demand (``remember`` / ``recall``
-tools). The notebook is append-only JSONL and shared across sessions.
-
-P3 addition: ``SqliteMemoryStore`` for relational, FTS5-searchable session
-storage using only the stdlib ``sqlite3`` module.
+This module also exposes a model-controlled ``NoteStore``: discrete facts the
+*model* chooses to write and read on demand (``remember`` / ``recall`` tools).
+The default backend is an append-only JSONL notebook; a SQLite-backed store is
+available for unified, full-text-searchable storage.
 """
 
 from __future__ import annotations
@@ -25,7 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from agentkernel.types import Message
 
@@ -47,6 +45,34 @@ class MemoryStore(Protocol):
 
     def list_sessions(self) -> list[str]:
         """Return known session ids (for management / cleanup)."""
+        ...
+
+
+class NoteStore(Protocol):
+    """Pluggable notebook of discrete facts the model reads and writes."""
+
+    def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
+        ...
+
+    def all(self) -> list[MemoryNote]:
+        ...
+
+    def recent(self, limit: int = 5) -> list[MemoryNote]:
+        ...
+
+    def search(self, query: str, *, limit: int = 5) -> list[MemoryNote]:
+        ...
+
+    def forget(self, *, note_id: int | None = None, text_prefix: str | None = None) -> list[MemoryNote]:
+        ...
+
+    def update(self, note_id: int, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote | None:
+        ...
+
+    def deduplicate(self) -> int:
+        ...
+
+    def export(self, destination: str | Path) -> Path:
         ...
 
 
@@ -397,7 +423,7 @@ class MemoryNote:
         )
 
 
-class MemoryNotes:
+class JsonlNoteStore:
     """Append-only notebook of facts with keyword + recency recall.
 
     Persistence is a single JSONL file (one note per line). Recall scores notes
@@ -580,7 +606,23 @@ class MemoryNotes:
         return dest
 
 
-def make_memory_tools(notes: MemoryNotes, store: MemoryStore | None = None) -> list:
+# Backward-compatible alias for code that directly constructs the JSONL notebook.
+MemoryNotes = JsonlNoteStore
+
+
+def make_note_store(path: str | Path) -> NoteStore:
+    """Select a note store backend based on the path extension.
+
+    Paths ending in ``.db``/``.sqlite``/``.sqlite3`` become a SQLite-backed
+    store; anything else uses the original JSONL notebook.
+    """
+    p = Path(path)
+    if p.suffix.lower() in (".db", ".sqlite", ".sqlite3"):
+        return SqliteNoteStore(p)
+    return JsonlNoteStore(p)
+
+
+def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> list:
     """Build the memory-management tools over a notebook and optional session store.
 
     ``remember`` is ungated: writes go only to the dedicated notebook file, so
@@ -838,3 +880,277 @@ def make_memory_tools(notes: MemoryNotes, store: MemoryStore | None = None) -> l
             )
 
     return tools
+
+
+class SqliteNoteStore:
+    """SQLite-backed notebook with full-text recall.
+
+    Uses the same ``MemoryNote`` model as ``JsonlNoteStore`` but persists in a
+    relational table. An optional FTS5 index is created for fast text search;
+    builds without FTS5 fall back to substring search.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn: sqlite3.Connection | None = None
+        self._fts_enabled: bool | None = None
+        self._ensure_schema()
+
+    def _connection(self) -> sqlite3.Connection:
+        if self._conn is None:
+            self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+        return self._conn
+
+    def _ensure_schema(self) -> None:
+        conn = self._connection()
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS notes (
+                note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                created TEXT NOT NULL,
+                accessed TEXT,
+                access_count INTEGER NOT NULL DEFAULT 0
+            );
+            """
+        )
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(text)"
+            )
+            self._fts_enabled = True
+        except sqlite3.OperationalError:
+            self._fts_enabled = False
+        conn.commit()
+
+    def _row_to_note(self, row: sqlite3.Row) -> MemoryNote:
+        return MemoryNote(
+            text=row["text"],
+            tags=json.loads(row["tags_json"]),
+            created=row["created"],
+            note_id=row["note_id"],
+            accessed=row["accessed"] or "",
+            access_count=row["access_count"],
+        )
+
+    def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
+        created = datetime.now(timezone.utc).isoformat()
+        conn = self._connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO notes (text, tags_json, created, accessed, access_count)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    text.strip(),
+                    json.dumps([str(t) for t in (tags or [])]),
+                    created,
+                    "",
+                    0,
+                ),
+            )
+            note_id = cursor.lastrowid or 0
+            if self._fts_enabled:
+                conn.execute(
+                    "INSERT INTO notes_fts(rowid, text) VALUES (?, ?)",
+                    (note_id, text.strip()),
+                )
+        note = MemoryNote(
+            text=text.strip(),
+            tags=[str(t) for t in (tags or [])],
+            created=created,
+            note_id=note_id,
+            accessed="",
+            access_count=0,
+        )
+        return note
+
+    def all(self) -> list[MemoryNote]:
+        rows = self._connection().execute(
+            "SELECT * FROM notes ORDER BY note_id"
+        ).fetchall()
+        return [self._row_to_note(r) for r in rows]
+
+    def recent(self, limit: int = 5) -> list[MemoryNote]:
+        rows = self._connection().execute(
+            "SELECT * FROM notes ORDER BY note_id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        notes = [self._row_to_note(r) for r in rows]
+        for note in notes:
+            self._touch(note)
+        return notes
+
+    def search(self, query: str, *, limit: int = 5) -> list[MemoryNote]:
+        query = query.strip()
+        if not query:
+            return self.recent(limit)
+        conn = self._connection()
+        rows: list[sqlite3.Row] = []
+        if self._fts_enabled:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT n.*
+                    FROM notes_fts f
+                    JOIN notes n ON f.rowid = n.note_id
+                    WHERE f MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (query, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        if not rows:
+            like = f"%{query}%"
+            rows = conn.execute(
+                """
+                SELECT * FROM notes
+                WHERE text LIKE ?
+                ORDER BY note_id DESC
+                LIMIT ?
+                """,
+                (like, limit),
+            ).fetchall()
+        notes = [self._row_to_note(r) for r in rows]
+        for note in notes:
+            self._touch(note)
+        return notes
+
+    def forget(self, *, note_id: int | None = None, text_prefix: str | None = None) -> list[MemoryNote]:
+        if note_id is None and not text_prefix:
+            return []
+        removed: list[MemoryNote] = []
+        conn = self._connection()
+        with conn:
+            if note_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM notes WHERE note_id = ?", (note_id,)
+                ).fetchall()
+                removed = [self._row_to_note(r) for r in rows]
+                self._delete_by_ids([r["note_id"] for r in rows])
+            elif text_prefix:
+                prefix = text_prefix.strip().lower()
+                rows = conn.execute(
+                    "SELECT * FROM notes WHERE LOWER(text) LIKE ?",
+                    (f"{prefix}%",),
+                ).fetchall()
+                removed = [self._row_to_note(r) for r in rows]
+                self._delete_by_ids([r["note_id"] for r in rows])
+        return removed
+
+    def _delete_by_ids(self, ids: Sequence[int]) -> None:
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        conn = self._connection()
+        with conn:
+            if self._fts_enabled:
+                conn.execute(
+                    f"DELETE FROM notes_fts WHERE rowid IN ({placeholders})",
+                    tuple(ids),
+                )
+            conn.execute(
+                f"DELETE FROM notes WHERE note_id IN ({placeholders})",
+                tuple(ids),
+            )
+
+    def update(self, note_id: int, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote | None:
+        accessed = datetime.now(timezone.utc).isoformat()
+        conn = self._connection()
+        with conn:
+            existing = conn.execute(
+                "SELECT * FROM notes WHERE note_id = ?", (note_id,)
+            ).fetchone()
+            if existing is None:
+                return None
+            if self._fts_enabled:
+                conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (note_id,))
+            conn.execute(
+                """
+                UPDATE notes
+                SET text = ?, tags_json = ?, accessed = ?,
+                    access_count = access_count + 1
+                WHERE note_id = ?
+                """,
+                (
+                    text.strip(),
+                    json.dumps([str(t) for t in (tags or [])]),
+                    accessed,
+                    note_id,
+                ),
+            )
+            if self._fts_enabled:
+                conn.execute(
+                    "INSERT INTO notes_fts(rowid, text) VALUES (?, ?)",
+                    (note_id, text.strip()),
+                )
+        row = conn.execute(
+            "SELECT * FROM notes WHERE note_id = ?", (note_id,)
+        ).fetchone()
+        return self._row_to_note(row) if row is not None else None
+
+    def deduplicate(self) -> int:
+        conn = self._connection()
+        with conn:
+            rows = conn.execute(
+                "SELECT * FROM notes ORDER BY note_id"
+            ).fetchall()
+            seen: dict[str, MemoryNote] = {}
+            ids_to_remove: list[int] = []
+            for row in rows:
+                note = self._row_to_note(row)
+                text = note.text.strip().lower()
+                if text in seen:
+                    existing = seen[text]
+                    existing.tags = sorted(set(existing.tags) | set(note.tags))
+                    if note.access_count:
+                        existing.access_count += note.access_count
+                    ids_to_remove.append(note.note_id)
+                    conn.execute(
+                        "UPDATE notes SET tags_json = ?, access_count = ? WHERE note_id = ?",
+                        (
+                            json.dumps(existing.tags),
+                            existing.access_count,
+                            existing.note_id,
+                        ),
+                    )
+                else:
+                    seen[text] = note
+        if ids_to_remove:
+            self._delete_by_ids(ids_to_remove)
+        return len(ids_to_remove)
+
+    def export(self, destination: str | Path) -> Path:
+        dest = Path(destination)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        lines: list[str] = ["# Memory Notes\n"]
+        for note in self.all():
+            tag_part = f" *[{', '.join(note.tags)}]*" if note.tags else ""
+            access_part = (
+                f", accessed {note.access_count} time(s)" if note.access_count else ""
+            )
+            lines.append(
+                f"- {note.text}{tag_part}  (id={note.note_id}, {note.created}{access_part})\n"
+            )
+        dest.write_text("".join(lines), encoding="utf-8")
+        return dest
+
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def _touch(self, note: MemoryNote) -> None:
+        note.access_count += 1
+        note.accessed = datetime.now(timezone.utc).isoformat()
+        with self._connection():
+            self._connection().execute(
+                "UPDATE notes SET access_count = ?, accessed = ? WHERE note_id = ?",
+                (note.access_count, note.accessed, note.note_id),
+            )
