@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from agentkernel.budget import BudgetGuard
 from agentkernel.context import ContextManager
 from agentkernel.context.truncate import truncate_text
+from agentkernel.redaction import redact_secrets
 from agentkernel.telemetry import ToolOutcome
 from agentkernel.types import Message, ToolResult
 
@@ -150,10 +151,15 @@ class Agent:
                     ToolOutcome(call.name, call.arguments, True, result.is_error)
                 )
 
-            # Cap every result before it enters context (design §8.4). This is
-            # the single truncation point for all tools — builtin and future
-            # ones — sharing the §9 mechanism. Structured `data` is left intact.
+            # Scrub secrets, then cap every result before it enters context
+            # (design §8.4, §18.1). This is the single processing point for all
+            # tools — builtin and future. Redaction runs on the full content
+            # (before truncation, so a secret can't be split past the cap), and
+            # structured `data` is left intact.
+            redact = getattr(self.config, "redact_tool_output", True)
             for r in results:
+                if redact:
+                    r.content, _ = redact_secrets(r.content)
                 r.content = truncate_text(r.content, self.config.max_tool_result_tokens)
 
             self.telemetry.record_turn(

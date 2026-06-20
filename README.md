@@ -123,6 +123,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `max_tool_result_tokens` | `4096` | per-result truncation cap |
 | `approval_policy` | `always_ask` | `always_ask` \| `auto_allow` \| `deny_mutations` |
 | `approval_allowlist` | `[]` | patterns that skip the approval prompt |
+| `redact_tool_output` | `True` | scrub secret-looking strings from tool results before they enter context/traces |
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |
 | `log_dir` | `.agentkernel/traces` | where session traces are written |
