@@ -65,6 +65,7 @@ def build_runtime(
     budget: BudgetGuard | None = None,
     memory: MemoryStore | None = None,
     sandbox: Sandbox | None = None,
+    session_id: str | None = None,
 ) -> tuple[Agent, JsonlTelemetry, list[MCPClient]]:
     """Construct an Agent, its telemetry, and any MCP clients from config.
 
@@ -211,7 +212,11 @@ def build_runtime(
             )
         )
 
-    telemetry = JsonlTelemetry(config.log_dir, config.model, verbose=verbose)
+    # A resumed session reuses its id, so telemetry appends to the same trace and
+    # the agent's pre-run memory load (§7) pulls that session's transcript.
+    telemetry = JsonlTelemetry(
+        config.log_dir, config.model, verbose=verbose, session_id=session_id
+    )
     agent = Agent(
         provider,
         registry,
@@ -497,6 +502,57 @@ def run_new(
     return 0
 
 
+def run_sessions(
+    config: Config,
+    action: str,
+    session_id: str | None,
+    *,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """List, show, or delete saved sessions (§18.2). Resume one with --resume."""
+    memory_dir = config.memory_dir or str(Path(config.log_dir).parent / "memory")
+    store = make_memory_store(config.memory_store or "file", memory_dir)
+    if store is None:
+        output_fn("[no memory store configured]")
+        return 1
+
+    if action == "list":
+        ids = store.list_sessions()
+        if not ids:
+            output_fn("(no saved sessions)")
+            return 0
+        for sid in ids:
+            messages = store.load(sid)
+            first_user = next(
+                (m.content for m in messages if m.role == "user" and m.content), ""
+            )
+            preview = (first_user[:60] + "…") if len(first_user) > 60 else first_user
+            output_fn(f"  {sid}  ({len(messages)} msgs)  {preview}")
+        output_fn("\nResume one with:  agentkernel --resume <id>")
+        return 0
+
+    if not session_id:
+        output_fn(f"usage: agentkernel sessions {action} <session_id>")
+        return 1
+
+    if action == "show":
+        messages = store.load(session_id)
+        if not messages:
+            output_fn(f"[no session {session_id!r}]")
+            return 1
+        for m in messages:
+            text = m.content or (
+                f"[{len(m.tool_results)} tool result(s)]" if m.tool_results else ""
+            )
+            output_fn(f"{m.role}: {text}")
+        return 0
+
+    # action == "delete"
+    store.delete(session_id)
+    output_fn(f"[deleted session {session_id}]")
+    return 0
+
+
 def run_improve(
     config: Config,
     *,
@@ -731,6 +787,11 @@ def main(argv: list[str] | None = None) -> int:
         help="enable a built-in memory store (overrides config.memory_store)",
     )
     parser.add_argument(
+        "--resume",
+        metavar="SESSION_ID",
+        help="resume a saved session by id (run/repl); requires a memory store",
+    )
+    parser.add_argument(
         "--skill",
         action="append",
         default=[],
@@ -781,6 +842,13 @@ def main(argv: list[str] | None = None) -> int:
         "--days", type=int, help="only include records from the last N days"
     )
     subparsers.add_parser("doctor", help="check config, dependencies, and credentials")
+    sessions_parser = subparsers.add_parser(
+        "sessions", help="list, show, or delete saved sessions"
+    )
+    sessions_parser.add_argument(
+        "action", choices=("list", "show", "delete"), help="what to do"
+    )
+    sessions_parser.add_argument("session_id", nargs="?", help="session id (show/delete)")
     new_parser = subparsers.add_parser(
         "new", help="scaffold a skill, profile, loop, or eval suite from a template"
     )
@@ -821,6 +889,8 @@ def main(argv: list[str] | None = None) -> int:
         checks = run_checks(config)
         print(format_checks(checks))
         return 1 if has_failures(checks) else 0
+    if command == "sessions":
+        return run_sessions(config, args.action, getattr(args, "session_id", None))
 
     # Load profile early so its model_override and rubric feed into config for
     # every command (run, repl, eval, loop, improve).
@@ -870,6 +940,15 @@ def main(argv: list[str] | None = None) -> int:
     memory_dir = config.memory_dir or str(Path(config.log_dir).parent / "memory")
     memory = make_memory_store(memory_kind, memory_dir)
 
+    resume_id = getattr(args, "resume", None)
+    if resume_id and memory is None:
+        print(
+            "[warning] --resume needs a memory store; enable one with --memory file "
+            "or memory_store in config. Starting a fresh session.",
+            file=sys.stderr,
+        )
+        resume_id = None
+
     sandbox = make_sandbox(
         config.sandbox,
         config.working_dir,
@@ -884,6 +963,7 @@ def main(argv: list[str] | None = None) -> int:
             budget=budget,
             memory=memory,
             sandbox=sandbox,
+            session_id=resume_id,
         )
     except (ProviderError, MCPError) as exc:
         sandbox.close()

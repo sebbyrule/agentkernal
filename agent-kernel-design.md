@@ -589,7 +589,7 @@ within each group is rough priority. Nothing here is committed.
 |---|---|---|
 | **Scheduled runs (cron)** | external driver | A small durable scheduler that invokes `Agent.run` on a cron/interval and writes the result to a trace. Pure orchestration around the existing entry point — a `agentkernel cron` CLI, no loop change. |
 | **Background / detached runs** | external driver | `agentkernel run --background "…"` that fire-and-forgets a run and records completion. Pairs naturally with cron. |
-| **Session store + resume** | memory seam | Promote the JSONL transcript store into addressable sessions: `sessions list/show/resume <id>`. Builds directly on the Phase-3 `MemoryStore`; resume = load that session's messages before the loop. |
+| **Session store + resume** ✅ | memory seam | **Done** (`sessions list/show/delete`, `--resume <id>`). Builds directly on the Phase-3 `MemoryStore`: `--resume` reuses the session id for telemetry, so the agent's pre-run memory load (§7) replays that transcript and subsequent saves append to it. Needs a memory store configured. |
 
 ### 18.3 Multi-agent
 
