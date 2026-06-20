@@ -36,6 +36,7 @@ class Config:
     enable_clarify: bool = False  # register the `clarify` ask-the-user tool (§18.4)
     enable_plugins: bool = False  # auto-load tools from plugins_dir (§18.7)
     plugins_dir: str = "plugins"  # directory of plugin tool modules
+    cron_path: str = ".agentkernel/cron.json"  # scheduled-job store (§18.2)
     approval_allowlist: list[str] = field(default_factory=list)  # patterns that skip the gate
     plan_mode: bool = False              # batch-approve the whole tool plan at once
     sandbox: str = "local"  # "local" | "docker" (design §10.3)

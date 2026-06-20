@@ -587,7 +587,7 @@ within each group is rough priority. Nothing here is committed.
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **Scheduled runs (cron)** | external driver | A small durable scheduler that invokes `Agent.run` on a cron/interval and writes the result to a trace. Pure orchestration around the existing entry point — a `agentkernel cron` CLI, no loop change. |
+| **Scheduled runs (cron)** ✅ | external driver | **Done** (`cron.py`, `agentkernel cron list/add/remove/run/tick`). A JSON-backed job store with interval schedules (`30m`, `2h`, `1d`, …); `cron tick` runs whatever is due once and exits, so an OS scheduler drives it — no daemon. A job that errors is still marked run so it won't re-fire every tick. 5-field cron expressions deferred. |
 | **Background / detached runs** | external driver | `agentkernel run --background "…"` that fire-and-forgets a run and records completion. Pairs naturally with cron. |
 | **Session store + resume** ✅ | memory seam | **Done** (`sessions list/show/delete`, `--resume <id>`). Builds directly on the Phase-3 `MemoryStore`: `--resume` reuses the session id for telemetry, so the agent's pre-run memory load (§7) replays that transcript and subsequent saves append to it. Needs a memory store configured. |
 

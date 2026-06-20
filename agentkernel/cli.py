@@ -553,6 +553,91 @@ def run_sessions(
     return 0
 
 
+def _cron_run_one(config: Config, prompt: str) -> str:
+    """Run one cron job's prompt through a fresh runtime and return the answer."""
+    sandbox = make_sandbox(
+        config.sandbox, config.working_dir,
+        image=config.sandbox_image, network=config.sandbox_network,
+    )
+    try:
+        agent, telemetry, clients = build_runtime(config, sandbox=sandbox)
+        try:
+            return agent.run(prompt)
+        finally:
+            telemetry.close()
+            for c in clients:
+                c.close()
+    finally:
+        sandbox.close()
+
+
+def run_cron(
+    config: Config,
+    action: str,
+    rest: list[str],
+    *,
+    output_fn: Callable[[str], None] = print,
+    run_fn: Callable[[str], str] | None = None,
+) -> int:
+    """Manage and run scheduled jobs (§18.2)."""
+    from agentkernel.cron import JobStore, run_due_jobs
+
+    store = JobStore(config.cron_path)
+    runner = run_fn or (lambda prompt: _cron_run_one(config, prompt))
+
+    if action == "list":
+        jobs = store.list()
+        if not jobs:
+            output_fn("(no scheduled jobs)")
+            return 0
+        for j in jobs:
+            state = "" if j.enabled else " [disabled]"
+            last = j.last_run or "never"
+            preview = (j.prompt[:50] + "…") if len(j.prompt) > 50 else j.prompt
+            output_fn(f"  {j.id}  every {j.schedule}{state}  (last: {last})  {preview}")
+        return 0
+
+    if action == "add":
+        if len(rest) < 2:
+            output_fn('usage: agentkernel cron add <schedule> "<prompt>"')
+            return 1
+        schedule, prompt = rest[0], " ".join(rest[1:])
+        try:
+            job = store.add(schedule, prompt)
+        except ValueError as exc:
+            output_fn(f"[invalid schedule] {exc}")
+            return 1
+        output_fn(f"[added job {job.id}: every {job.schedule}]")
+        return 0
+
+    if action in ("remove", "run"):
+        if not rest:
+            output_fn(f"usage: agentkernel cron {action} <job_id>")
+            return 1
+        job_id = rest[0]
+        if action == "remove":
+            ok = store.remove(job_id)
+            output_fn(f"[removed {job_id}]" if ok else f"[no job {job_id}]")
+            return 0 if ok else 1
+        job = store.get(job_id)
+        if job is None:
+            output_fn(f"[no job {job_id}]")
+            return 1
+        result = runner(job.prompt)
+        store.mark_run(job_id)
+        output_fn(result)
+        return 0
+
+    # action == "tick": run everything due once.
+    results = run_due_jobs(store, runner)
+    if not results:
+        output_fn("(nothing due)")
+        return 0
+    for job_id, result in results:
+        output_fn(f"[{job_id}] {result}")
+    return 0
+
+
 def run_improve(
     config: Config,
     *,
@@ -849,6 +934,16 @@ def main(argv: list[str] | None = None) -> int:
         "action", choices=("list", "show", "delete"), help="what to do"
     )
     sessions_parser.add_argument("session_id", nargs="?", help="session id (show/delete)")
+    cron_parser = subparsers.add_parser(
+        "cron", help="manage scheduled jobs (list/add/remove/run/tick)"
+    )
+    cron_parser.add_argument(
+        "action", choices=("list", "add", "remove", "run", "tick")
+    )
+    cron_parser.add_argument(
+        "rest", nargs="*",
+        help="add: <schedule> <prompt...>; remove/run: <job_id>",
+    )
     new_parser = subparsers.add_parser(
         "new", help="scaffold a skill, profile, loop, or eval suite from a template"
     )
@@ -891,6 +986,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if has_failures(checks) else 0
     if command == "sessions":
         return run_sessions(config, args.action, getattr(args, "session_id", None))
+    if command == "cron":
+        return run_cron(config, args.action, args.rest)
 
     # Load profile early so its model_override and rubric feed into config for
     # every command (run, repl, eval, loop, improve).

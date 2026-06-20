@@ -54,6 +54,8 @@ uv run agentkernel insights --days 30         # aggregate session traces into a 
 uv run agentkernel doctor                     # check config, deps, credentials, sandbox
 uv run agentkernel sessions list              # list saved sessions (needs a memory store)
 uv run agentkernel --resume <id> run "..."    # resume a saved session by id
+uv run agentkernel cron add 1h "check CI"     # schedule a job; `cron tick` runs what's due
+uv run agentkernel cron tick                  # run all due jobs once (drive from OS scheduler)
 uv run agentkernel new skill my-skill         # scaffold a skill/profile/loop/eval from a template
 uv run agentkernel --profile reviewer run "review src/"  # run with a bundled profile
 uv run agentkernel --skill code-review repl   # start REPL with a skill pinned
