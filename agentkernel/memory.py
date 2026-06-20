@@ -21,9 +21,9 @@ import re
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from agentkernel.types import Message
 
@@ -63,10 +63,14 @@ class NoteStore(Protocol):
     def search(self, query: str, *, limit: int = 5) -> list[MemoryNote]:
         ...
 
-    def forget(self, *, note_id: int | None = None, text_prefix: str | None = None) -> list[MemoryNote]:
+    def forget(
+        self, *, note_id: int | None = None, text_prefix: str | None = None
+    ) -> list[MemoryNote]:
         ...
 
-    def update(self, note_id: int, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote | None:
+    def update(
+        self, note_id: int, text: str, *, tags: Sequence[str] | None = None
+    ) -> MemoryNote | None:
         ...
 
     def deduplicate(self) -> int:
@@ -471,13 +475,15 @@ class JsonlNoteStore:
         """Record that a note was recalled. Updated in memory; a subsequent
         rewrite will persist the new access metadata."""
         note.access_count += 1
-        note.accessed = datetime.now(timezone.utc).isoformat()
+        note.accessed = datetime.now(UTC).isoformat()
 
-    def add(self, text: str, tags: Sequence[str] | None = None, *, note_id: int | None = None) -> MemoryNote:
+    def add(
+        self, text: str, tags: Sequence[str] | None = None, *, note_id: int | None = None
+    ) -> MemoryNote:
         note = MemoryNote(
             text=text.strip(),
             tags=[str(t) for t in (tags or [])],
-            created=datetime.now(timezone.utc).isoformat(),
+            created=datetime.now(UTC).isoformat(),
             note_id=note_id if note_id is not None else self._next_id,
         )
         if note.note_id >= self._next_id:
@@ -509,8 +515,8 @@ class JsonlNoteStore:
             doc_tokens.append(tokens)
             for t in tokens:
                 df[t] = df.get(t, 0) + 1
-        N = len(self._notes)
-        idf = {t: math.log((N + 1) / (df[t] + 1)) + 1 for t in df}
+        num_docs = len(self._notes)
+        idf = {t: math.log((num_docs + 1) / (df[t] + 1)) + 1 for t in df}
         vectors: list[dict[str, float]] = []
         for tokens in doc_tokens:
             total = len(tokens) or 1
@@ -526,7 +532,7 @@ class JsonlNoteStore:
         query_vec = {t: (1 / query_total) * idf.get(t, 0) for t in terms}
         query_norm = math.sqrt(sum(v * v for v in query_vec.values())) or 1.0
         scored: list[tuple[float, int, MemoryNote]] = []
-        for index, (note, vec) in enumerate(zip(self._notes, vectors)):
+        for index, (note, vec) in enumerate(zip(self._notes, vectors, strict=True)):
             if not vec:
                 continue
             dot = sum(query_vec.get(t, 0) * vec.get(t, 0) for t in terms)
@@ -562,7 +568,9 @@ class JsonlNoteStore:
             self._rewrite()
         return removed
 
-    def forget(self, *, note_id: int | None = None, text_prefix: str | None = None) -> list[MemoryNote]:
+    def forget(
+        self, *, note_id: int | None = None, text_prefix: str | None = None
+    ) -> list[MemoryNote]:
         """Remove notes matching ``note_id`` or whose text starts with ``text_prefix``.
 
         Returns the notes that were removed.
@@ -571,9 +579,9 @@ class JsonlNoteStore:
         remaining: list[MemoryNote] = []
         prefix = (text_prefix or "").strip().lower()
         for note in self._notes:
-            if note_id is not None and note.note_id == note_id:
-                removed.append(note)
-            elif prefix and note.text.lower().startswith(prefix):
+            if (note_id is not None and note.note_id == note_id) or (
+                prefix and note.text.lower().startswith(prefix)
+            ):
                 removed.append(note)
             else:
                 remaining.append(note)
@@ -582,13 +590,15 @@ class JsonlNoteStore:
             self._rewrite()
         return removed
 
-    def update(self, note_id: int, text: str, tags: Sequence[str] | None = None) -> MemoryNote | None:
+    def update(
+        self, note_id: int, text: str, tags: Sequence[str] | None = None
+    ) -> MemoryNote | None:
         """Replace the text/tags of an existing note in place."""
         for note in self._notes:
             if note.note_id == note_id:
                 note.text = text.strip()
                 note.tags = [str(t) for t in (tags or [])]
-                note.accessed = datetime.now(timezone.utc).isoformat()
+                note.accessed = datetime.now(UTC).isoformat()
                 self._rewrite()
                 return note
         return None
@@ -601,7 +611,9 @@ class JsonlNoteStore:
         for note in self._notes:
             tag_part = f" *[{', '.join(note.tags)}]*" if note.tags else ""
             access_part = f", accessed {note.access_count} time(s)" if note.access_count else ""
-            lines.append(f"- {note.text}{tag_part}  (id={note.note_id}, {note.created}{access_part})\n")
+            lines.append(
+                f"- {note.text}{tag_part}  (id={note.note_id}, {note.created}{access_part})\n"
+            )
         dest.write_text("".join(lines), encoding="utf-8")
         return dest
 
@@ -634,14 +646,14 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
 
     def remember(arguments: dict) -> ToolResult:
         text = arguments["text"]
-        note = notes.add(text, arguments.get("tags"))
+        note = notes.add(text, tags=arguments.get("tags"))
         suffix = f" [tags: {', '.join(note.tags)}]" if note.tags else ""
         return ToolResult("", f"Remembered: {note.text}{suffix}")
 
     def recall(arguments: dict) -> ToolResult:
         query = arguments.get("query", "") or ""
         limit = int(arguments.get("limit", 5))
-        results = notes.search(query, limit) if query else notes.recent(limit)
+        results = notes.search(query, limit=limit) if query else notes.recent(limit)
         if not results:
             return ToolResult("", "(no relevant memories)")
         lines = [
@@ -661,7 +673,7 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
 
     def update_memory(arguments: dict) -> ToolResult:
         note_id = int(arguments["note_id"])
-        note = notes.update(note_id, arguments["text"], arguments.get("tags"))
+        note = notes.update(note_id, arguments["text"], tags=arguments.get("tags"))
         if note is None:
             return ToolResult("", f"No note with id={note_id}.", is_error=True)
         return ToolResult("", f"Updated note {note_id}.")
@@ -682,7 +694,9 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
 
     def deduplicate_memory(arguments: dict) -> ToolResult:
         removed = notes.deduplicate()
-        return ToolResult("", f"Removed {removed} duplicate note(s). {len(notes.all())} unique note(s) remain.")
+        return ToolResult(
+            "", f"Removed {removed} duplicate note(s). {len(notes.all())} unique note(s) remain."
+        )
 
     tools = [
         ToolSpec(
@@ -736,8 +750,14 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
             parameters={
                 "type": "object",
                 "properties": {
-                    "note_id": {"type": "integer", "description": "Exact id of the note to remove."},
-                    "text_prefix": {"type": "string", "description": "Remove notes whose text starts with this string."},
+                    "note_id": {
+                        "type": "integer",
+                        "description": "Exact id of the note to remove.",
+                    },
+                    "text_prefix": {
+                        "type": "string",
+                        "description": "Remove notes whose text starts with this string.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -754,7 +774,10 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
             parameters={
                 "type": "object",
                 "properties": {
-                    "note_id": {"type": "integer", "description": "Exact id of the note to update."},
+                    "note_id": {
+                        "type": "integer",
+                        "description": "Exact id of the note to update.",
+                    },
                     "text": {"type": "string", "description": "New note text."},
                     "tags": {
                         "type": "array",
@@ -868,7 +891,10 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
                     parameters={
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string", "description": "Words to search for in session messages."},
+                            "query": {
+                                "type": "string",
+                                "description": "Words to search for in session messages.",
+                            },
                             "limit": {"type": "integer", "description": "Max sessions to return."},
                         },
                         "required": ["query"],
@@ -959,7 +985,7 @@ class SqliteNoteStore:
         )
 
     def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
-        created = datetime.now(timezone.utc).isoformat()
+        created = datetime.now(UTC).isoformat()
         conn = self._connection()
         with conn:
             cursor = conn.execute(
@@ -1044,7 +1070,9 @@ class SqliteNoteStore:
             self._touch(note)
         return notes
 
-    def forget(self, *, note_id: int | None = None, text_prefix: str | None = None) -> list[MemoryNote]:
+    def forget(
+        self, *, note_id: int | None = None, text_prefix: str | None = None
+    ) -> list[MemoryNote]:
         if note_id is None and not text_prefix:
             return []
         removed: list[MemoryNote] = []
@@ -1082,8 +1110,10 @@ class SqliteNoteStore:
                 tuple(ids),
             )
 
-    def update(self, note_id: int, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote | None:
-        accessed = datetime.now(timezone.utc).isoformat()
+    def update(
+        self, note_id: int, text: str, *, tags: Sequence[str] | None = None
+    ) -> MemoryNote | None:
+        accessed = datetime.now(UTC).isoformat()
         conn = self._connection()
         with conn:
             existing = conn.execute(
@@ -1170,7 +1200,7 @@ class SqliteNoteStore:
 
     def _touch(self, note: MemoryNote) -> None:
         note.access_count += 1
-        note.accessed = datetime.now(timezone.utc).isoformat()
+        note.accessed = datetime.now(UTC).isoformat()
         with self._connection():
             self._connection().execute(
                 "UPDATE notes SET access_count = ?, accessed = ? WHERE note_id = ?",

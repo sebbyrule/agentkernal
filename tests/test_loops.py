@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from agentkernel.loops import Loop, LoopRunner, load_loop, loop_from_skill
 from agentkernel.skills import SkillLibrary
 from tests.conftest import build_agent

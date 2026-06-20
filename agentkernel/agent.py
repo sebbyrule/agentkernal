@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from agentkernel.skills import ContextSource
     from agentkernel.telemetry import Telemetry
     from agentkernel.tools import ToolRegistry, ToolSpec
+    from agentkernel.types import ToolCall
 
 
 class Agent:
@@ -119,22 +120,25 @@ class Agent:
             specs = [self.registry.spec(call.name) for call in tool_calls]
             validation_errors = [self.registry.validate(call) for call in tool_calls]
 
-            if self.config.plan_mode:
-                if not self._approve_plan(tool_calls, specs):
-                    self.telemetry.record_turn(
-                        iteration, resp, tool_outcomes=[], compaction=compaction
-                    )
-                    self._persist_memory(session_id)
-                    return "Plan denied by user."
+            if self.config.plan_mode and not self._approve_plan(tool_calls, specs):
+                self.telemetry.record_turn(
+                    iteration, resp, tool_outcomes=[], compaction=compaction
+                )
+                self._persist_memory(session_id)
+                return "Plan denied by user."
 
             results: list[ToolResult] = []
             outcomes: list[ToolOutcome] = []
-            for call, spec, err in zip(tool_calls, specs, validation_errors):
+            for call, spec, err in zip(tool_calls, specs, validation_errors, strict=True):
                 if err:
                     results.append(ToolResult(call.id, err, is_error=True))
                     outcomes.append(ToolOutcome(call.name, call.arguments, None, True))
                     continue
-                if not self.config.plan_mode and self._needs_approval(spec) and not self.approver.approve(call, spec):
+                if (
+                    not self.config.plan_mode
+                    and self._needs_approval(spec)
+                    and not self.approver.approve(call, spec)
+                ):
                     results.append(
                         ToolResult(call.id, "Denied by user.", is_error=True)
                     )
@@ -245,7 +249,7 @@ class Agent:
         """Ask the approver for the whole batch; fall back to per-call approval."""
         if hasattr(self.approver, "approve_plan"):
             return self.approver.approve_plan(calls, specs)
-        for call, spec in zip(calls, specs):
+        for call, spec in zip(calls, specs, strict=True):
             if self._needs_approval(spec) and not self.approver.approve(call, spec):
                 return False
         return True

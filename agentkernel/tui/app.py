@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
-import time
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 # curses is imported lazily inside TuiApp.run() so the module can be imported
@@ -172,18 +171,16 @@ class TuiApp:
             color = color_role.get(msg.role, _COLOR_SYSTEM)
 
             # Header line
-            try:
-                self._chat_pad.addstr(y, 0, f" {prefix} ", self._c.color_pair(color) | self._c.A_BOLD)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                self._chat_pad.addstr(
+                    y, 0, f" {prefix} ", self._c.color_pair(color) | self._c.A_BOLD
+                )
             y += 1
 
             # Content lines (word-wrapped)
             for line in self._wrap_text(msg.content, self._max_x - 4):
-                try:
+                with contextlib.suppress(Exception):
                     self._chat_pad.addstr(y, 2, line[: self._max_x - 2])
-                except Exception:
-                    pass
                 y += 1
             y += 1  # blank line between messages
 
@@ -194,14 +191,12 @@ class TuiApp:
         self._scroll_offset = min(self._scroll_offset, max_scroll)
 
         # Display the viewport
-        try:
+        with contextlib.suppress(Exception):
             self._chat_pad.refresh(
                 self._scroll_offset, 0,
                 self._chat_vp_y, self._chat_vp_x,
                 self._chat_vp_y + viewport_lines - 1, self._chat_vp_x + self._chat_vp_width - 1,
             )
-        except Exception:
-            pass
 
     def _draw_input(self) -> None:
         if self._input_win is None:
@@ -212,10 +207,11 @@ class TuiApp:
 
         # Border
         self._input_win.border(0)
-        try:
-            self._input_win.addstr(0, 2, " Message (Enter=send, Esc=quit) ", self._c.color_pair(_COLOR_INPUT_BORDER))
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            self._input_win.addstr(
+                0, 2, " Message (Enter=send, Esc=quit) ",
+                self._c.color_pair(_COLOR_INPUT_BORDER),
+            )
 
         # Show input text with cursor
         text = self._input_text
@@ -223,19 +219,15 @@ class TuiApp:
         for row in range(min(2, h - 2)):
             line_start = row * (w - 4)
             line_text = text[line_start : line_start + w - 4]
-            try:
+            with contextlib.suppress(Exception):
                 self._input_win.addstr(1 + row, 2, line_text)
-            except Exception:
-                pass
 
         # Position cursor
         cursor_y = 1 + (cursor // (w - 4))
         cursor_x = 2 + (cursor % (w - 4))
         if cursor_y < h - 1:
-            try:
+            with contextlib.suppress(Exception):
                 self._input_win.move(cursor_y, cursor_x)
-            except Exception:
-                pass
         self._input_win.refresh()
 
     def _draw_status(self) -> None:
@@ -243,16 +235,14 @@ class TuiApp:
             return
 
         self._status_win.erase()
-        try:
+        with contextlib.suppress(Exception):
             self._status_win.bkgd(" ", self._c.color_pair(_COLOR_STATUS))
-        except Exception:
-            pass
 
         status = self._status[: self._max_x - 1]
-        try:
-            self._status_win.addstr(0, 0, status.ljust(self._max_x - 1), self._c.color_pair(_COLOR_STATUS))
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            self._status_win.addstr(
+                0, 0, status.ljust(self._max_x - 1), self._c.color_pair(_COLOR_STATUS)
+            )
         self._status_win.refresh()
 
     # ── helpers ──────────────────────────────────────────────────────────
@@ -305,13 +295,16 @@ class TuiApp:
         self._dirty = True  # something changed
 
         if key in _QUIT_KEYS:
-            if self._agent_thread and self._agent_thread.is_alive():
-                # Warn once, then allow quit on next Esc.
-                if not getattr(self, "_quit_warned", False):
-                    self._quit_warned = True
-                    self._status = "Agent is running. Press Esc again to force quit."
-                    self._dirty = True
-                    return
+            # Warn once, then allow quit on next Esc.
+            if (
+                self._agent_thread
+                and self._agent_thread.is_alive()
+                and not getattr(self, "_quit_warned", False)
+            ):
+                self._quit_warned = True
+                self._status = "Agent is running. Press Esc again to force quit."
+                self._dirty = True
+                return
             self._running = False
             return
 
@@ -413,22 +406,17 @@ class TuiApp:
 
             # Clean up MCP clients and telemetry
             if self._telemetry is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self._telemetry.close()
-                except Exception:
-                    pass
             for client in self._mcp_clients:
-                try:
+                with contextlib.suppress(Exception):
                     client.close()
-                except Exception:
-                    pass
             self._telemetry = None
             self._mcp_clients = []
 
         elif self._agent_thread is not None and self._agent_thread.is_alive():
             # Update spinner
             self._spinner_idx = (self._spinner_idx + 1) % len(_SPINNER)
-            elapsed = 0  # approximate — could track start time
             self._status = f" {_SPINNER[self._spinner_idx]} Thinking..."
 
     def _cleanup(self) -> None:
@@ -437,12 +425,8 @@ class TuiApp:
             self._agent_done.set()
             self._agent_thread.join(timeout=2.0)
         if self._telemetry is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._telemetry.close()
-            except Exception:
-                pass
         for client in self._mcp_clients:
-            try:
+            with contextlib.suppress(Exception):
                 client.close()
-            except Exception:
-                pass

@@ -50,8 +50,12 @@ def test_improver_analyzes_trace_and_writes_file(tmp_path):
 def test_improver_picks_latest_trace(tmp_path):
     old = tmp_path / "old.jsonl"
     new = tmp_path / "new.jsonl"
-    _write_trace(old, {"model": "a", "stop_reason": "end_turn", "tool_calls": [], "assistant_message": ""})
-    _write_trace(new, {"model": "b", "stop_reason": "end_turn", "tool_calls": [], "assistant_message": ""})
+    _write_trace(
+        old, {"model": "a", "stop_reason": "end_turn", "tool_calls": [], "assistant_message": ""}
+    )
+    _write_trace(
+        new, {"model": "b", "stop_reason": "end_turn", "tool_calls": [], "assistant_message": ""}
+    )
     # Ensure mtime ordering even on fast filesystems.
     old.touch()
     new.touch()

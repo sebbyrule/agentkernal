@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from agentkernel.cli import repl, run_once
 from agentkernel.providers import ProviderError
+from agentkernel.skills import SkillLibrary
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import ToolResult
 from tests.fakes import FakeProvider, text_response
-from agentkernel.skills import SkillLibrary
 
 
 class _ScriptedInput:

@@ -12,8 +12,8 @@ candidate set before the dense comparison, avoiding a full linear scan.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from agentkernel.embeddings import EmbeddingProvider, cosine_similarity
 from agentkernel.memory import MemoryNote, SqliteNoteStore
@@ -220,7 +220,7 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         vectors = self._embedding_provider.embed([r["text"] for r in rows])
         count = 0
         with self._connection():
-            for row, vec in zip(rows, vectors):
+            for row, vec in zip(rows, vectors, strict=True):
                 if vec:
                     self._ensure_lsh_index(vec)
                     self._connection().execute(

@@ -9,7 +9,6 @@ from agentkernel.cli import build_runtime, repl, run_improve
 from agentkernel.config import Config
 from agentkernel.memory import SqliteNoteStore
 from agentkernel.skills import DirectorySkillStore
-
 from tests.fakes import FakeProvider, text_response
 
 

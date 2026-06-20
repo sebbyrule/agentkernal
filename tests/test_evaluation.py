@@ -9,7 +9,6 @@ from agentkernel.evaluation import (
     _parse_score,
     load_eval_suite,
 )
-
 from tests.conftest import build_agent
 from tests.fakes import FakeProvider, text_response
 

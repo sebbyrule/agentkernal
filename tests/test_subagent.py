@@ -9,7 +9,6 @@ from agentkernel.config import Config
 from agentkernel.subagent import make_spawn_tool
 from agentkernel.tools import ToolRegistry, ToolSpec
 from agentkernel.types import ToolCall, ToolResult
-
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 

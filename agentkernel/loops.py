@@ -67,7 +67,7 @@ class LoopRunner:
         self,
         agent_factory: AgentFactory,
         *,
-        sandbox: "Sandbox | None" = None,
+        sandbox: Sandbox | None = None,
         output_fn: Callable[[str], None] | None = None,
     ) -> None:
         self._agent_factory = agent_factory
@@ -122,7 +122,7 @@ def load_loop(path: str | Path) -> Loop:
 
 
 def loop_from_skill(
-    library: "SkillLibrary",
+    library: SkillLibrary,
     name: str,
     *,
     max_iterations: int = 5,

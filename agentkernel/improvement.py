@@ -58,7 +58,10 @@ def _summarize_trace(records: list[dict[str, Any]]) -> str:
         lines.append(f"model: {record.get('model', 'unknown')}")
         lines.append(f"stop_reason: {record.get('stop_reason', 'unknown')}")
         for call in record.get("tool_calls", []):
-            lines.append(f"tool: {call.get('name')} approved={call.get('approved')} error={call.get('is_error')}")
+            lines.append(
+                f"tool: {call.get('name')} approved={call.get('approved')} "
+                f"error={call.get('is_error')}"
+            )
         # Note: the redacted JSONL trace (design §12) does not carry assistant
         # text or raw tool args, so reflection works from the structural signal
         # — tools used, errors, stop reasons, and token/cost figures.

@@ -128,7 +128,7 @@ class Evaluator:
     def __init__(
         self,
         agent_factory: AgentFactory,
-        judge: "Provider",
+        judge: Provider,
         *,
         default_rubric: str = _DEFAULT_RUBRIC,
         pass_threshold: float = 0.6,

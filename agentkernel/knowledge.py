@@ -316,7 +316,8 @@ def make_graph_tools(graph: KnowledgeGraph) -> list[Any]:
             name="graph_query",
             description=(
                 "Query facts in the knowledge graph. Any field may be omitted to match all. "
-                "Use `like` for a case-insensitive substring search across subjects, predicates, or objects."
+                "Use `like` for a case-insensitive substring search across "
+                "subjects, predicates, or objects."
             ),
             parameters={
                 "type": "object",

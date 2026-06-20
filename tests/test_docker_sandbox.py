@@ -5,7 +5,6 @@ verified without a Docker daemon. A live test runs only when docker is present."
 from __future__ import annotations
 
 import shutil
-import subprocess
 
 import pytest
 
@@ -39,9 +38,9 @@ def test_start_args_have_isolation_flags():
     assert "--memory" in args and args[args.index("--memory") + 1] == "256m"
     assert "--cpus" in args and args[args.index("--cpus") + 1] == "0.5"
     assert "--pids-limit" in args
-    assert ["--security-opt", "no-new-privileges"] == args[
+    assert args[
         args.index("--security-opt") : args.index("--security-opt") + 2
-    ]
+    ] == ["--security-opt", "no-new-privileges"]
     # The host dir is bind-mounted at the container workdir.
     assert "-v" in args and args[args.index("-v") + 1].endswith(":/workspace")
     assert args[-3:] == ["python:3.12-slim", "sleep", "infinity"]

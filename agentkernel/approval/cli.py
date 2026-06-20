@@ -56,7 +56,7 @@ class AutoApprover:
     def approve_plan(self, calls: list[ToolCall], specs: list[ToolSpec | None]) -> bool:
         decisions = [
             decide(self._policy, spec, call, self._allowlist)
-            for call, spec in zip(calls, specs)
+            for call, spec in zip(calls, specs, strict=True)
         ]
         if any(d == "deny" for d in decisions):
             return False
@@ -95,7 +95,7 @@ class CliApprover:
     def approve_plan(self, calls: list[ToolCall], specs: list[ToolSpec | None]) -> bool:
         decisions = [
             decide(self._policy, spec, call, self._allowlist)
-            for call, spec in zip(calls, specs)
+            for call, spec in zip(calls, specs, strict=True)
         ]
         if any(d == "deny" for d in decisions):
             self._output("Denied by policy for at least one planned tool.")

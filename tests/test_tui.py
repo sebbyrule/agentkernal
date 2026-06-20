@@ -8,8 +8,6 @@ entry-point error path.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
 
 # ── message buffer tests ────────────────────────────────────────────────────
 
@@ -60,8 +58,8 @@ def test_run_tui_graceful_import_error(monkeypatch):
     except ImportError:
         curses_available = False
 
-    from agentkernel.tui import run_tui
     from agentkernel.config import Config
+    from agentkernel.tui import run_tui
 
     if curses_available:
         # Simulate unavailability by hiding the real module.

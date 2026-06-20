@@ -28,21 +28,21 @@ from agentkernel.approval import AutoApprover, CliApprover, Sandbox, make_sandbo
 from agentkernel.budget import BudgetGuard
 from agentkernel.config import Config
 from agentkernel.context import ContextManager, ModelSummarizer
+from agentkernel.embeddings import EmbeddingError, OpenAIEmbeddingProvider
+from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
 from agentkernel.mcp import MCPClient, MCPError, load_mcp_servers, register_mcp_servers
 from agentkernel.mcp.config import MCPServerConfig
-from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
 from agentkernel.memory import (
-    NoteStore,
     MemoryStore,
+    NoteStore,
     make_memory_store,
     make_memory_tools,
     make_note_store,
 )
-from agentkernel.embeddings import EmbeddingError, OpenAIEmbeddingProvider
-from agentkernel.semantic_memory import SemanticSqliteNoteStore
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.providers import ProviderError, make_provider
+from agentkernel.semantic_memory import SemanticSqliteNoteStore
 from agentkernel.skills import DirectorySkillStore, make_skill_tool
 from agentkernel.subagent import make_spawn_tool
 from agentkernel.telemetry import JsonlTelemetry, NullTelemetry
@@ -755,7 +755,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         print(f"[session trace: {telemetry.path}]")
         if config.sandbox == "docker":
-            print(f"[sandbox: docker image={config.sandbox_image} network={config.sandbox_network}]")
+            print(
+                f"[sandbox: docker image={config.sandbox_image} "
+                f"network={config.sandbox_network}]"
+            )
         if memory_kind:
             print(f"[memory: {memory_kind} @ {memory_dir}]")
         if mcp_clients:

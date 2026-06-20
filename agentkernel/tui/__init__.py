@@ -2,7 +2,7 @@
 
 Provides a split-pane terminal UI with:
 - Scrollable chat history (color-coded by role)
-- Multi-line input area  
+- Multi-line input area
 - Status bar (model, tokens, cost)
 - Background agent execution with live status indicator
 
@@ -16,7 +16,6 @@ On Windows, ``pip install windows-curses`` first.
 from __future__ import annotations
 
 import sys
-import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

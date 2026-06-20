@@ -51,10 +51,10 @@ _SPAWN_SCHEMA = {
 
 def make_spawn_tool(
     *,
-    provider: "Provider",
+    provider: Provider,
     base_specs: list[ToolSpec],
-    approver: "Approver",
-    config: "Config",
+    approver: Approver,
+    config: Config,
     max_depth: int = 2,
     depth: int = 1,
 ) -> ToolSpec:

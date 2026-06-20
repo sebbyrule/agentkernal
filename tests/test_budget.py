@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from agentkernel.budget import BudgetGuard
-from agentkernel.config import Config
 from agentkernel.tools import ToolRegistry, ToolSpec
-from agentkernel.types import Message, ToolCall, ToolResult, Usage, CompletionResponse
+from agentkernel.types import CompletionResponse, Message, ToolCall, ToolResult, Usage
 from tests.fakes import FakeProvider, text_response, tool_call_response
 
 

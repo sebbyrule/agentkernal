@@ -293,6 +293,32 @@ def test_memory_tool_update_memory_changes_note(tmp_path):
     assert notes.all()[0].text == "new"
 
 
+def test_memory_tools_work_against_sqlite_store(tmp_path):
+    """remember/recall/update_memory must pass keyword args so they work on the
+    SQLite-backed stores (whose add/search/update are keyword-only), not just the
+    JSONL notebook. Regression: the tools previously passed tags/limit positionally
+    and raised TypeError on SqliteNoteStore / SemanticSqliteNoteStore."""
+    from agentkernel.memory import make_memory_tools
+
+    notes = SqliteNoteStore(tmp_path / "notes.db")
+    tools = {t.name: t for t in make_memory_tools(notes)}
+
+    remembered = tools["remember"].handler({"text": "deploy key in vault", "tags": ["ops"]})
+    assert not remembered.is_error
+    assert "Remembered" in remembered.content
+
+    recalled = tools["recall"].handler({"query": "deploy key", "limit": 3})
+    assert not recalled.is_error
+    assert "deploy key in vault" in recalled.content
+
+    note_id = notes.all()[0].note_id
+    updated = tools["update_memory"].handler(
+        {"note_id": note_id, "text": "rotated", "tags": ["ops"]}
+    )
+    assert not updated.is_error
+    assert notes.all()[0].text == "rotated"
+
+
 def test_normalize_token_stems_common_suffixes():
     assert _normalize_token("running") == "runn"
     assert _normalize_token("tables") == "table"
@@ -331,7 +357,10 @@ def test_session_memory_tools_list_and_delete(tmp_path):
     store = InMemoryMemoryStore()
     store.save("session-a", [Message(role="user", content="hello")])
     store.save("session-b", [Message(role="user", content="hi")])
-    tools = {t.name: t for t in make_memory_tools(MemoryNotes(tmp_path / "notes.jsonl"), store=store)}
+    tools = {
+        t.name: t
+        for t in make_memory_tools(MemoryNotes(tmp_path / "notes.jsonl"), store=store)
+    }
     list_result = tools["list_sessions"].handler({})
     assert "session-a" in list_result.content
     assert "session-b" in list_result.content

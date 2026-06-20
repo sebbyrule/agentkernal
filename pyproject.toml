@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "jsonschema>=4.21",  # tool-arg validation (design §6.2)
     "httpx>=0.27",       # provider HTTP calls (M1, design §5)
+    "windows-curses>=2.4.2; sys_platform == 'win32'",
 ]
 
 [project.scripts]

@@ -97,7 +97,7 @@ class LSHIndex:
         """Return the integer bucket for ``vector``."""
         bucket = 0
         for bit, plane in enumerate(self._hyperplanes):
-            dot = sum(v * p for v, p in zip(vector, plane))
+            dot = sum(v * p for v, p in zip(vector, plane, strict=True))
             if dot >= 0:
                 bucket |= 1 << bit
         return bucket

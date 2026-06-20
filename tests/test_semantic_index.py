@@ -66,7 +66,7 @@ def test_remove_deletes_bucket(tmp_path):
 
 def test_hyperplanes_persisted_in_meta(tmp_path):
     conn, factory = _tmp_db(tmp_path)
-    index = LSHIndex(dim=5, num_bits=10, conn=factory, seed=42)
+    LSHIndex(dim=5, num_bits=10, conn=factory, seed=42)  # persists meta on init
 
     meta = {
         row["key"]: row["value"]

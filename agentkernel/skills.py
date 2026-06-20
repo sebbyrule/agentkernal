@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Sequence, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -129,7 +130,11 @@ class SkillLibrary:
     def _load_skill_md(self, path: Path, *, bundle_dir: Path | None) -> Skill | None:
         text = path.read_text(encoding="utf-8")
         meta, body = _split_frontmatter(text)
-        name = str(meta.get("name") or path.stem if not bundle_dir else meta.get("name") or bundle_dir.name)
+        name = str(
+            meta.get("name") or path.stem
+            if not bundle_dir
+            else meta.get("name") or bundle_dir.name
+        )
         description = str(meta.get("description") or _first_line(body))
         resources: tuple[str, ...] = ()
         if bundle_dir is not None:
@@ -138,7 +143,9 @@ class SkillLibrary:
                 for p in sorted(bundle_dir.rglob("*"))
                 if p.is_file() and p.name != "SKILL.md"
             )
-        return Skill(name=name, description=description, body=body, source=path, resources=resources)
+        return Skill(
+            name=name, description=description, body=body, source=path, resources=resources
+        )
 
     @staticmethod
     def _load_toml(path: Path) -> Skill | None:
