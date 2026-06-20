@@ -53,6 +53,17 @@ class AutoApprover:
             return False
         return self._ask_default
 
+    def approve_plan(self, calls: list[ToolCall], specs: list[ToolSpec | None]) -> bool:
+        decisions = [
+            decide(self._policy, spec, call, self._allowlist)
+            for call, spec in zip(calls, specs)
+        ]
+        if any(d == "deny" for d in decisions):
+            return False
+        if all(d == "allow" for d in decisions):
+            return True
+        return self._ask_default
+
 
 class CliApprover:
     """Interactive approver: prints the pending call and reads y/n when the
@@ -79,4 +90,20 @@ class CliApprover:
             self._output(f"Denied by policy: {_summarize(call)}")
             return False
         answer = self._input(f"Approve {_summarize(call)}? [y/N] ").strip().lower()
+        return answer in ("y", "yes")
+
+    def approve_plan(self, calls: list[ToolCall], specs: list[ToolSpec | None]) -> bool:
+        decisions = [
+            decide(self._policy, spec, call, self._allowlist)
+            for call, spec in zip(calls, specs)
+        ]
+        if any(d == "deny" for d in decisions):
+            self._output("Denied by policy for at least one planned tool.")
+            return False
+        if all(d == "allow" for d in decisions):
+            return True
+        self._output("Proposed plan:")
+        for i, call in enumerate(calls, 1):
+            self._output(f"  {i}. {_summarize(call)}")
+        answer = self._input("Approve entire plan? [y/N] ").strip().lower()
         return answer in ("y", "yes")

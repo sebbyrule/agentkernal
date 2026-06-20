@@ -2,9 +2,10 @@
 
 This reads like the pseudocode in the design doc on purpose: no clever
 metaprogramming, no provider-specific branching. The loop sends the context
-window plus tools to the provider, executes any tool calls through the registry
-(gating mutations through the approver), and appends every result back, paired
-to its call id (design §8), until the model produces a final answer.
+window plus tools to the provider, parses any tool calls out of the response,
+executes them through the registry (gating mutations through the approver), and
+appends every result back, paired to its call id (design §8), until the model
+produces a final answer.
 """
 
 from __future__ import annotations
@@ -114,16 +115,26 @@ class Agent:
                 self._persist_memory(session_id)
                 return resp.message.content  # final answer
 
+            tool_calls = resp.message.tool_calls
+            specs = [self.registry.spec(call.name) for call in tool_calls]
+            validation_errors = [self.registry.validate(call) for call in tool_calls]
+
+            if self.config.plan_mode:
+                if not self._approve_plan(tool_calls, specs):
+                    self.telemetry.record_turn(
+                        iteration, resp, tool_outcomes=[], compaction=compaction
+                    )
+                    self._persist_memory(session_id)
+                    return "Plan denied by user."
+
             results: list[ToolResult] = []
             outcomes: list[ToolOutcome] = []
-            for call in resp.message.tool_calls:  # may be >1 (parallel tool use)
-                err = self.registry.validate(call)
+            for call, spec, err in zip(tool_calls, specs, validation_errors):
                 if err:
                     results.append(ToolResult(call.id, err, is_error=True))
                     outcomes.append(ToolOutcome(call.name, call.arguments, None, True))
                     continue
-                spec = self.registry.spec(call.name)
-                if self._needs_approval(spec) and not self.approver.approve(call, spec):
+                if not self.config.plan_mode and self._needs_approval(spec) and not self.approver.approve(call, spec):
                     results.append(
                         ToolResult(call.id, "Denied by user.", is_error=True)
                     )
@@ -227,3 +238,14 @@ class Agent:
     @staticmethod
     def _needs_approval(spec: ToolSpec | None) -> bool:
         return bool(spec and spec.gated)
+
+    def _approve_plan(
+        self, calls: list[ToolCall], specs: list[ToolSpec | None]
+    ) -> bool:
+        """Ask the approver for the whole batch; fall back to per-call approval."""
+        if hasattr(self.approver, "approve_plan"):
+            return self.approver.approve_plan(calls, specs)
+        for call, spec in zip(calls, specs):
+            if self._needs_approval(spec) and not self.approver.approve(call, spec):
+                return False
+        return True
