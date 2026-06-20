@@ -575,13 +575,13 @@ gateway, a voice stack) belongs in a separate package that *consumes* the kernel
 not inside it; those are listed last so the boundary stays explicit. Ordering
 within each group is rough priority. Nothing here is committed.
 
-### 18.1 Safety & trust (highest leverage, smallest surface)
+### 18.1 Safety & trust (highest leverage, smallest surface) — ✅ done
 
 | Idea | Seam | Notes |
 |---|---|---|
 | **`smart` approval mode** ✅ | approver | **Done** (`approval/risk.py`, `approval_policy = "smart"`). A `RiskJudge` (cheap model, defaults to `summarizer_model` then `model`) classifies each gated call; the approver auto-approves low-risk ones and prompts on high-risk. Conservative: any judge error or unparseable reply falls back to asking. |
 | **Secret redaction of tool *output*** ✅ | result post-processing | **Done** (`redaction.py`, `redact_tool_output` config, on by default). Scrubs known token formats (provider key prefixes, PEM blocks, `Authorization` headers, labelled `secret=…` assignments) from tool results at the single §8.4 processing point — before truncation, so a secret can't be split past the cap — and thus before they reach context or traces. Stdlib-only. |
-| **Filesystem checkpoints + `rollback`** | tool + run param | Snapshot the working dir (git stash-like, or a copy) before a batch of mutations; a `rollback` tool / `--checkpoints` flag restores it. Makes destructive runs reversible without trusting the model's own cleanup. |
+| **Filesystem checkpoints + `rollback`** ✅ | tool + run param | **Done** (`checkpoint.py`, `checkpoints` config). The file tools record a file's pre-edit bytes (once, keeping the earliest) before write/edit; the `rollback` tool restores every recorded file and deletes ones created since. Makes destructive runs reversible without trusting the model's own cleanup. Per-session, in memory. |
 
 ### 18.2 Durable & scheduled execution
 

@@ -8,10 +8,14 @@ raise). ``read_file`` truncates large files via the shared §8.4/§9 mechanism.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agentkernel.context.truncate import truncate_text
 from agentkernel.tools.base import ToolSpec
 from agentkernel.types import ToolResult
+
+if TYPE_CHECKING:
+    from agentkernel.checkpoint import Checkpointer
 
 
 def resolve_within(root: Path, path: str) -> Path:
@@ -26,11 +30,18 @@ def resolve_within(root: Path, path: str) -> Path:
     return candidate
 
 
-def file_tools(working_dir: str = ".", *, max_result_tokens: int = 4096) -> list[ToolSpec]:
+def file_tools(
+    working_dir: str = ".",
+    *,
+    max_result_tokens: int = 4096,
+    checkpointer: Checkpointer | None = None,
+) -> list[ToolSpec]:
     """Build the file toolset bound to ``working_dir``.
 
     Binding the root (and result cap) here keeps handlers pure functions of
     their arguments — they never reach for global config (AGENT.md, design §7).
+    When a ``checkpointer`` is supplied, write_file/edit_file record a file's
+    pre-modification state so a ``rollback`` can undo the change (design §18.1).
     """
     root = Path(working_dir).resolve()
 
@@ -55,6 +66,8 @@ def file_tools(working_dir: str = ".", *, max_result_tokens: int = 4096) -> list
             target = _resolve(path)
         except ValueError as exc:
             return ToolResult("", str(exc), is_error=True)
+        if checkpointer is not None:
+            checkpointer.record(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return ToolResult("", f"Wrote {len(content)} bytes to {path}")
@@ -97,6 +110,8 @@ def file_tools(working_dir: str = ".", *, max_result_tokens: int = 4096) -> list
                 "pass replace_all=true or include more surrounding context.",
                 is_error=True,
             )
+        if checkpointer is not None:
+            checkpointer.record(target)
         updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
         target.write_text(updated, encoding="utf-8")
         replaced = count if replace_all else 1

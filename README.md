@@ -125,6 +125,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `approval_allowlist` | `[]` | patterns that skip the approval prompt |
 | `approval_judge_model` | `None` | model that judges call risk under `smart` (defaults to `summarizer_model`, then `model`) |
 | `redact_tool_output` | `True` | scrub secret-looking strings from tool results before they enter context/traces |
+| `checkpoints` | `False` | back up files before edits and register a `rollback` tool to undo them |
 | `working_dir` | `.` | root that file/shell tools are confined to |
 | `summarizer_model` | `None` | cheap model for compaction (`None` → structural fallback) |
 | `log_dir` | `.agentkernel/traces` | where session traces are written |
@@ -209,6 +210,7 @@ A `ToolSpec` carries a JSON-Schema parameter definition, a handler, and flags (`
 | `file_info(path)` | read-only — size / type / mtime / line count |
 | `write_file(path, content)` | mutates, requires approval |
 | `edit_file(path, old, new, replace_all?)` | mutates, requires approval — exact-substring replace |
+| `rollback()` | restores files to their pre-edit state (only when `checkpoints = true`) |
 | `bash(command)` | runs code, mutates, requires approval |
 
 File and search tools confine paths to the working directory (rejecting `..` escapes and absolute paths outside the root); `bash` runs inside the sandbox boundary. See [`examples/`](examples) for a playground project, ready-to-paste prompts, and a scored eval suite that exercise these tools.

@@ -81,13 +81,25 @@ def build_runtime(
             image=config.sandbox_image,
             network=config.sandbox_network,
         )
+    # Filesystem checkpoints (§18.1): when enabled, file tools back up files
+    # before editing and a `rollback` tool restores them.
+    checkpointer = None
+    if config.checkpoints:
+        from agentkernel.checkpoint import Checkpointer
+        from agentkernel.tools.builtin.checkpoint_tool import rollback_tool
+
+        checkpointer = Checkpointer()
+
     registry = ToolRegistry()
     for spec in default_tools(
         sandbox,
         config.working_dir,
         max_result_tokens=config.max_tool_result_tokens,
+        checkpointer=checkpointer,
     ):
         registry.register(spec)
+    if checkpointer is not None:
+        registry.register(rollback_tool(checkpointer))
     mcp_clients = register_mcp_servers(
         registry, list(mcp_servers or []), log_dir=config.mcp_log_dir
     )
