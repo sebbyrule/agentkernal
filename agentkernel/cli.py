@@ -629,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("repl", help="interactive REPL")
+    subparsers.add_parser("tui", help="interactive curses-based terminal UI")
     run_parser = subparsers.add_parser("run", help="single non-interactive run")
     run_parser.add_argument("prompt", nargs="?", help="text prompt")
     run_parser.add_argument("--file", help="path to a file containing the prompt")
@@ -699,6 +700,10 @@ def main(argv: list[str] | None = None) -> int:
             output_path=getattr(args, "output", None),
             case_filter=args.case or None,
         )
+
+    if command == "tui":
+        from agentkernel.tui import run_tui
+        return run_tui(config)
 
     if command == "loop":
         return run_loop(
