@@ -28,4 +28,5 @@ class Provider(Protocol):
         max_tokens: int,
         temperature: float = 1.0,
         system: str | None = None,
+        reasoning: str | None = None,
     ) -> CompletionResponse: ...

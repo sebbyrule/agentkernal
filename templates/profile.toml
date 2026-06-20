@@ -23,3 +23,7 @@ tool_filter = ["read_file", "list_dir", "find_files", "search_text", "file_info"
 
 # Optional: default rubric used by `agentkernel eval` when this profile is active.
 # rubric = "The answer is correct and complete."
+
+# Optional: reasoning effort for providers that support it (OpenAI reasoning
+# models, Anthropic extended thinking). Ignored by providers/models that don't.
+# reasoning = "high"   # low | medium | high

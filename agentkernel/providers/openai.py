@@ -120,12 +120,14 @@ class OpenAIProvider:
         name: str = "openai",
         require_key: bool = True,
         env_key: str = "OPENAI_API_KEY",
+        send_reasoning: bool = True,
     ) -> None:
         self.name = name
         self.model = model
         self.context_window = context_window
         self._base_url = base_url.rstrip("/")
         self._require_key = require_key
+        self._send_reasoning = send_reasoning
         self._pool = (
             CredentialPool([api_key]) if api_key else CredentialPool.from_env(env_key)
         )
@@ -138,6 +140,7 @@ class OpenAIProvider:
         max_tokens: int,
         temperature: float = 1.0,
         system: str | None = None,
+        reasoning: str | None = None,
     ) -> CompletionResponse:
         if self._require_key and self._pool.current() is None:
             raise ProviderError(f"API key for provider {self.name!r} is not set")
@@ -147,6 +150,10 @@ class OpenAIProvider:
             "temperature": temperature,
             "messages": render_messages(messages, system),
         }
+        # reasoning_effort is honored by OpenAI reasoning models; only sent when a
+        # profile asks for it, and never for local endpoints that may reject it.
+        if reasoning and self._send_reasoning:
+            payload["reasoning_effort"] = reasoning
         if tools:
             payload["tools"] = render_tools(tools)
 

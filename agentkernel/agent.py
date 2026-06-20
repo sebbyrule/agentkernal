@@ -83,6 +83,7 @@ class Agent:
         # destroy prompt-cache hit-rate (design §9.3, AGENT.md rule 3).
         tools = self._tools_for(profile)
         system = self._system_for(profile)
+        reasoning = getattr(profile, "reasoning", None)
 
         if self.budget is not None:
             self.budget.reset()
@@ -95,6 +96,7 @@ class Agent:
                 tools,
                 max_tokens=self.config.max_output_tokens,
                 system=system,
+                reasoning=reasoning,
             )
             self.context.add(resp.message)
             compaction = self.context.take_compaction()

@@ -24,6 +24,7 @@ class Profile:
     tool_filter: list[str] | None = None
     model_override: str | None = None
     rubric: str | None = None
+    reasoning: str | None = None  # "low" | "medium" | "high" (§18.5); ignored where unsupported
 
 
 def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
@@ -64,5 +65,6 @@ def load_profile(name: str, *, search_dirs: Sequence[Path] | None = None) -> Pro
                 tool_filter=values.get("tool_filter"),
                 model_override=values.get("model_override"),
                 rubric=values.get("rubric"),
+                reasoning=values.get("reasoning"),
             )
     return None

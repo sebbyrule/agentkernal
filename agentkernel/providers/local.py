@@ -30,4 +30,5 @@ class LocalProvider(OpenAIProvider):
             name="local",
             require_key=False,  # local endpoints commonly need no key
             env_key="LOCAL_API_KEY",
+            send_reasoning=False,  # arbitrary local models may reject reasoning_effort
         )

@@ -22,6 +22,7 @@ class FakeProvider:
         self.calls: list[list[Message]] = []
         self.tool_args: list[object] = []  # the tools list passed each turn
         self.system_args: list[str | None] = []
+        self.reasoning_args: list[str | None] = []
 
     def complete(
         self,
@@ -31,11 +32,13 @@ class FakeProvider:
         max_tokens: int,
         temperature: float = 1.0,
         system: str | None = None,
+        reasoning: str | None = None,
     ) -> CompletionResponse:
         # Snapshot the conversation as the loop sent it this turn.
         self.calls.append(list(messages))
         self.tool_args.append(tools)
         self.system_args.append(system)
+        self.reasoning_args.append(reasoning)
         if self._index >= len(self._responses):
             raise AssertionError("FakeProvider ran out of scripted responses")
         resp = self._responses[self._index]

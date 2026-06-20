@@ -605,14 +605,14 @@ within each group is rough priority. Nothing here is committed.
 | **`todo` tool** ✅ | tool | **Done** (`tools/builtin/todo.py`, `enable_todo`). A `TodoList` the model maintains via one `todo` tool — actions add/start/complete/list/clear, rendered as a checkbox list with a done/total count. In-memory per session, no globals. |
 | **`clarify` tool** ✅ | tool (over the approver/input seam) | **Done** (`tools/builtin/clarify.py`, `enable_clarify`). Asks the user one question over the terminal input channel and returns the answer; on `EOFError`/no stdin it degrades to "proceed with your best judgment" rather than blocking. |
 
-### 18.5 Provider & model layer
+### 18.5 Provider & model layer — ✅ core done (router + extra adapters deferred)
 
 | Idea | Seam | Notes |
 |---|---|---|
 | **Credential pools / key rotation** ✅ | provider | **Done** (`providers/credentials.py`). Keys are read from one env var (comma-separated) plus numbered siblings `<VAR>_1..N`; `post_json_pooled` rotates to the next key on a `RateLimitError` (429 after retries), marking the spent one exhausted. A single key is a pool of one, so existing setups are unchanged. Invisible to the loop. |
-| **Reasoning-effort run parameter** | run param | Plumb a `reasoning` level through `run(profile=…)` to providers that support it; ignored by those that don't. |
-| **Model router for auxiliary work** | config | Generalize today's single `summarizer_model` into named roles (summarize / judge / classify-risk) so compaction, evals, and `smart` approval can each pick a cheap model. |
-| **More first-class adapters** | provider | The OpenAI-compatible `local` adapter already covers many endpoints; add thin named adapters (Gemini, OpenRouter, DeepSeek) only where the wire shape genuinely differs. |
+| **Reasoning-effort run parameter** ✅ | run param | **Done** (`Profile.reasoning`, plumbed through `run` → `complete`). OpenAI gets `reasoning_effort`; Anthropic maps low/medium/high to an extended-thinking budget (capped under `max_tokens`); local omits it (arbitrary endpoints may reject it); others ignore it. |
+| **Model router for auxiliary work** | config | Generalize today's single `summarizer_model` into named roles (summarize / judge / classify-risk) so compaction, evals, and `smart` approval can each pick a cheap model. *(Deferred — separate `summarizer_model` / `judge_model` / `approval_judge_model` already exist; unifying them is a refactor, not new capability.)* |
+| **More first-class adapters** | provider | The OpenAI-compatible `local` adapter already covers many endpoints; add thin named adapters (Gemini, OpenRouter, DeepSeek) only where the wire shape genuinely differs. *(Deferred — `local` covers OpenAI-compatible endpoints today.)* |
 
 ### 18.6 Multimodality
 

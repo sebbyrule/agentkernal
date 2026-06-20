@@ -37,6 +37,25 @@ def render_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
     return wire
 
 
+_THINKING_BUDGET = {"low": 1024, "medium": 4096, "high": 8192}
+
+
+def thinking_config(reasoning: str | None, max_tokens: int) -> dict[str, Any] | None:
+    """Map a reasoning level to an extended-thinking block, or None.
+
+    The budget is capped below ``max_tokens`` (thinking must leave room for the
+    reply); if there isn't enough room, thinking is skipped rather than erroring.
+    Thinking blocks in the response are already ignored by ``parse_response``.
+    """
+    if not reasoning:
+        return None
+    headroom = max_tokens - 1024
+    if headroom < 1024:
+        return None
+    budget = min(_THINKING_BUDGET.get(reasoning, 4096), headroom)
+    return {"type": "enabled", "budget_tokens": budget}
+
+
 def render_system(system: str | None) -> list[dict[str, Any]] | None:
     """System prompt as a cached text block, or None when absent."""
     if not system:
@@ -147,15 +166,20 @@ class AnthropicProvider:
         max_tokens: int,
         temperature: float = 1.0,
         system: str | None = None,
+        reasoning: str | None = None,
     ) -> CompletionResponse:
         if self._pool.current() is None:
             raise ProviderError("ANTHROPIC_API_KEY is not set in the environment")
+        thinking = thinking_config(reasoning, max_tokens)
         payload: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
+            # Extended thinking requires temperature 1; otherwise honor the caller.
+            "temperature": 1.0 if thinking else temperature,
             "messages": render_messages(messages),
         }
+        if thinking is not None:
+            payload["thinking"] = thinking
         if tools:
             payload["tools"] = render_tools(tools)
         sys_blocks = render_system(system)
