@@ -591,11 +591,11 @@ within each group is rough priority. Nothing here is committed.
 | **Background / detached runs** ✅ | external driver | **Done** (`run --background`, `__main__.py`). Re-invokes `python -m agentkernel run <prompt>` as a fully detached process (platform-appropriate flags) with output redirected to `.agentkernel/background/<id>.out`; the parent returns immediately. |
 | **Session store + resume** ✅ | memory seam | **Done** (`sessions list/show/delete`, `--resume <id>`). Builds directly on the Phase-3 `MemoryStore`: `--resume` reuses the session id for telemetry, so the agent's pre-run memory load (§7) replays that transcript and subsequent saves append to it. Needs a memory store configured. |
 
-### 18.3 Multi-agent
+### 18.3 Multi-agent — ✅ done
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **Git worktree isolation for `spawn`** | sub-agent tool | When a spawned child edits code, run it in a throwaway `git worktree` so parallel children don't collide. Extends the existing depth-limited `spawn` (§13) — no new concept, just an isolation flag. |
+| **Git worktree isolation for `spawn`** ✅ | sub-agent tool | **Done** (`worktree.py`, `spawn(worktree=true)`). A `WorktreeManager` (git CLI wrapper) creates a throwaway worktree on a fresh branch; the child's file/shell tools are rebuilt for it via an injected `tool_factory`, so parallel children don't collide. A clean worktree is removed afterward; one with changes is kept and its path/branch reported. Falls back to a normal spawn when there's no git repo or factory. |
 | **Work-queue (kanban-lite)** ✅ | tool + driver | **Done** (`kanban.py`, the `kanban` tool, `agentkernel kanban` CLI, `enable_kanban`). A durable JSON board of tasks with todo/in_progress/done/blocked states; the model (or spawned workers) file, claim (`next`), complete, block, and comment via one tool, and a CLI inspects/manages it. JSON whole-file writes — a SQLite board would be the next step for heavy contention. |
 
 ### 18.4 In-session tools (cheap, high-utility) — ✅ done

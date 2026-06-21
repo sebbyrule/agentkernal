@@ -207,6 +207,19 @@ def build_runtime(
     # except through the explicit, depth-limited spawn tools it creates.
     if config.enable_spawn:
         base_specs = registry.specs()
+
+        def _tool_factory(working_dir: str):
+            # Rebuild the builtin toolset bound to a worktree dir (§18.3), with its
+            # own sandbox so the child's file/shell tools are isolated there.
+            wt_sandbox = make_sandbox(
+                config.sandbox, working_dir,
+                image=config.sandbox_image, network=config.sandbox_network,
+            )
+            return default_tools(
+                wt_sandbox, working_dir,
+                max_result_tokens=config.max_tool_result_tokens,
+            )
+
         registry.register(
             make_spawn_tool(
                 provider=provider,
@@ -214,6 +227,7 @@ def build_runtime(
                 approver=approver,
                 config=config,
                 max_depth=config.spawn_max_depth,
+                tool_factory=_tool_factory,
             )
         )
 
