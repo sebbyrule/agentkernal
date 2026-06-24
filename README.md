@@ -150,6 +150,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `enable_memory_tools` | `False` | register `remember`/`recall`/`forget` tools |
 | `memory_auto_context` / `memory_auto_context_limit` | `False` / `3` | auto-inject recalled notes before each user message |
 | `memory_store_budget` | `None` | summarize older turns before persisting memory |
+| `memory_curator_model` | `None` | cheap model for `memory extract`/`consolidate` (falls back to `summarizer_model`/`model`) |
 | `semantic_search` | `False` | rank note recall with dense embeddings (SQLite only) |
 | `semantic_search_lsh_bits` | `None` | approximate vector index bits; omit for brute force |
 | `embedding_model` | `text-embedding-3-small` | OpenAI-compatible embedding model |
@@ -341,7 +342,7 @@ The kernel proves its design by adding every capability through one of three pri
 - **MCP** — an MCP client registers each remote tool as a `ToolSpec` (a tool).
 - **Knowledge graph** — `graph_add`/`graph_query` are ordinary registered tools.
 - **Skills** — a `ContextSource` contributes system-prompt text (a context injection).
-- **Memory** — pre-run load and post-run save hooks around `run`, plus optional recall injected before each user message (context injection).
+- **Memory** — pre-run load and post-run save hooks around `run`, plus optional recall injected before each user message (context injection). A model-controlled notebook (`remember`/`recall`/…) and **self-curation** ([curation.py](agentkernel/curation.py)): `agentkernel memory extract` distils a session transcript into durable facts (deduped against existing notes), and `agentkernel memory consolidate` has the model merge related notes and supersede outdated ones. Schedule it via `cron` to keep memory tidy automatically.
 - **Profiles** — `run()` accepts a `profile` parameter (a run parameter).
 - **Sub-agents** — the `spawn` tool builds a child `Agent` from inside a handler (a tool, on top of re-entrancy).
 - **Self-improvement** — reads the telemetry the kernel has emitted since turn one.

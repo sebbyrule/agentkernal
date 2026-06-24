@@ -57,6 +57,28 @@ _PROMPT = "> "
 _EXIT_WORDS = {"exit", "quit", ":q"}
 
 
+def _make_configured_note_store(config: Config) -> NoteStore:
+    """Build the note store named by config (semantic SQLite or JSONL notebook).
+
+    Shared by build_runtime (memory tools) and run_memory (curation), so the
+    notebook backend is selected identically in both.
+    """
+    if config.semantic_search:
+        try:
+            emb_provider = OpenAIEmbeddingProvider.from_config(config)
+            notes_path = Path(config.memory_notes_path)
+            if notes_path.suffix.lower() not in (".db", ".sqlite", ".sqlite3"):
+                notes_path = notes_path.parent / (notes_path.stem + ".semantic.db")
+            return SemanticSqliteNoteStore(
+                notes_path,
+                embedding_provider=emb_provider,
+                lsh_bits=config.semantic_search_lsh_bits,
+            )
+        except EmbeddingError as exc:
+            print(f"Warning: semantic search disabled: {exc}", file=sys.stderr)
+    return make_note_store(config.memory_notes_path)
+
+
 def build_runtime(
     config: Config,
     *,
@@ -152,22 +174,7 @@ def build_runtime(
 
     notes: NoteStore | None = None
     if config.enable_memory_tools:
-        if config.semantic_search:
-            try:
-                emb_provider = OpenAIEmbeddingProvider.from_config(config)
-                notes_path = Path(config.memory_notes_path)
-                if notes_path.suffix.lower() not in (".db", ".sqlite", ".sqlite3"):
-                    notes_path = notes_path.parent / (notes_path.stem + ".semantic.db")
-                notes = SemanticSqliteNoteStore(
-                    notes_path,
-                    embedding_provider=emb_provider,
-                    lsh_bits=config.semantic_search_lsh_bits,
-                )
-            except EmbeddingError as exc:
-                print(f"Warning: semantic search disabled: {exc}", file=sys.stderr)
-                notes = make_note_store(config.memory_notes_path)
-        else:
-            notes = make_note_store(config.memory_notes_path)
+        notes = _make_configured_note_store(config)
         for spec in make_memory_tools(notes, store=memory):
             registry.register(spec)
 
@@ -764,6 +771,67 @@ def run_cron(
     return 0
 
 
+def run_memory(
+    config: Config,
+    action: str,
+    *,
+    session: str | None = None,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Curate long-term memory: extract facts from a session, or consolidate.
+
+    These are best-effort harness operations over the configured note store; no
+    sandbox, MCP, or tools are needed.
+    """
+    from agentkernel.curation import MemoryCurator
+
+    notes = _make_configured_note_store(config)
+    curator_model = config.memory_curator_model or config.summarizer_model or config.model
+    provider = make_provider(replace(config, model=curator_model))
+    curator = MemoryCurator(notes, provider)
+
+    if action == "consolidate":
+        result = curator.consolidate()
+        output_fn(
+            f"Consolidated memory: {result.before} -> {result.after} note(s) "
+            f"({result.removed} merged/removed)."
+        )
+        return 0
+
+    if action == "extract":
+        memory_dir = config.memory_dir or ".agentkernel/memory"
+        store = make_memory_store(config.memory_store or "file", memory_dir)
+        target = session
+        if target is None:
+            sessions = store.list_sessions()
+            if not sessions:
+                output_fn("[no saved sessions to extract from]")
+                return 1
+            if len(sessions) > 1:
+                output_fn(
+                    "[multiple sessions; pass --session <id>. Available: "
+                    + ", ".join(sessions)
+                    + "]"
+                )
+                return 1
+            target = sessions[0]
+        messages = store.load(target)
+        if not messages:
+            output_fn(f"[no messages in session {target}]")
+            return 1
+        result = curator.extract(messages)
+        output_fn(
+            f"Extracted {len(result.added)} new fact(s) from session {target} "
+            f"({result.skipped_duplicates} duplicate(s) skipped)."
+        )
+        for note in result.added:
+            output_fn(f"  + {note.text}")
+        return 0
+
+    output_fn(f"[unknown memory action: {action}]")
+    return 1
+
+
 def run_improve(
     config: Config,
     *,
@@ -1058,6 +1126,15 @@ def main(argv: list[str] | None = None) -> int:
         "--days", type=int, help="only include records from the last N days"
     )
     subparsers.add_parser("doctor", help="check config, dependencies, and credentials")
+    memory_parser = subparsers.add_parser(
+        "memory", help="curate long-term memory (extract facts, consolidate)"
+    )
+    memory_parser.add_argument(
+        "action", choices=("extract", "consolidate"), help="what to do"
+    )
+    memory_parser.add_argument(
+        "--session", help="session id to extract from (default: the only session)"
+    )
     sessions_parser = subparsers.add_parser(
         "sessions", help="list, show, or delete saved sessions"
     )
@@ -1126,6 +1203,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if has_failures(checks) else 0
     if command == "sessions":
         return run_sessions(config, args.action, getattr(args, "session_id", None))
+    if command == "memory":
+        return run_memory(config, args.action, session=getattr(args, "session", None))
     if command == "cron":
         return run_cron(config, args.action, args.rest)
     if command == "kanban":

@@ -59,6 +59,7 @@ class Config:
     memory_auto_context: bool = False  # auto-inject recalled notes into user message
     memory_auto_context_limit: int = 3  # max notes per auto-recall
     memory_store_budget: int | None = None  # max tokens to persist per session
+    memory_curator_model: str | None = None  # cheap model for extract/consolidate; None -> summarizer_model/model
     semantic_search: bool = False  # rank note recall with dense embeddings
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int | None = None  # optional truncation (OpenAI only)

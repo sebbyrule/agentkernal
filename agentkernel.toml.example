@@ -54,6 +54,10 @@ log_dir = ".agentkernel/traces"
 # memory_auto_context = false       # auto-inject recalled notes into user message
 # memory_auto_context_limit = 3     # max notes per auto-recall
 # memory_store_budget = 4000        # summarize older turns before persisting
+# memory_curator_model = "..."      # cheap model for `memory extract` / `memory consolidate`
+#                                   # Self-curation (run on demand or via cron):
+#                                   #   agentkernel memory extract [--session <id>]
+#                                   #   agentkernel memory consolidate
 
 # semantic_search = false            # rank note recall with dense embeddings (SQLite only)
 # semantic_search_lsh_bits = 16      # approximate vector index; omit for brute force
