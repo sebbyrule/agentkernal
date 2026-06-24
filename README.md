@@ -39,6 +39,32 @@ export OPENAI_API_KEY=***        # for provider = "openai" / embeddings
 # comma-separate (ANTHROPIC_API_KEY="k1,k2") or number them (ANTHROPIC_API_KEY_1, _2).
 ```
 
+### Running anywhere
+
+`agentkernel` works from any directory, not just its own repo:
+
+```bash
+agentkernel -C ~/code/my-app run "summarize the failing tests"
+```
+
+Config is discovered in layers — **explicit `--config`** overrides everything;
+otherwise the user-global **`~/.agentkernel/config.toml`** is the base and the
+nearest project **`agentkernel.toml`** (found by walking up from the target
+directory) overrides it, then `AGENTKERNEL_*` env vars, then defaults. Set
+`AGENTKERNEL_HOME` to relocate the global home.
+
+State follows a **global brain, project sessions** policy:
+
+| Lives in `~/.agentkernel/` (global) | Lives in `<project>/.agentkernel/` (per-project) |
+|---|---|
+| memory notebook, knowledge graph, skills, profiles, improvements, cron jobs | session traces, kanban board, checkpoints, the session memory store |
+
+So your skills, long-term memory, and scheduled jobs are shared across every
+project, while each project keeps its own transcripts and work board. `-C PATH`
+(like `git -C`) points the agent at a project from elsewhere; an absolute path in
+config is always honored as-is, and a path customized in a project's
+`agentkernel.toml` stays project-local.
+
 ## Quick start
 
 ```bash
@@ -282,7 +308,8 @@ These are implemented on top of the kernel using the three primitives — a tool
 ```
 agentkernel/
   types.py              # canonical data types
-  config.py             # configuration loading
+  config.py             # configuration loading + layered discovery
+  paths.py              # agent home / project root resolution (run anywhere)
   telemetry.py          # JSONL traces + cost table
   agent.py              # the loop
   providers/            # base protocol + anthropic / openai / local adapters

@@ -106,6 +106,99 @@ class Config:
 
 _FIELD_TYPES: dict[str, Any] = {f.name: f.type for f in fields(Config)}
 
+# State that is the agent's user-global "brain & library" vs per-project.
+# Defaults anchor to the appropriate root (see paths.py); a value customized in
+# project config anchors to the project instead, so per-project overrides win.
+_GLOBAL_PATH_FIELDS = (
+    "memory_notes_path", "graph_path", "skills_dir", "profile_dir",
+    "improvements_dir", "cron_path",
+)
+_PROJECT_PATH_FIELDS = (
+    "log_dir", "mcp_log_dir", "kanban_path", "plugins_dir", "memory_dir",
+)
+
+
+def _read_config_fields(path: Path) -> dict[str, Any]:
+    """Read recognized fields from a TOML config file."""
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    return {k: v for k, v in data.items() if k in _FIELD_TYPES}
+
+
+def resolve_config(
+    config_arg: str | os.PathLike[str] | None = None,
+    *,
+    cwd: str | os.PathLike[str] = ".",
+    env: dict[str, str] | None = None,
+    **overrides: Any,
+) -> tuple[Config, Path | None]:
+    """Resolve config for running anywhere (global brain, project sessions).
+
+    Precedence: explicit ``config_arg`` (single file) **or** layered
+    ``<home>/config.toml`` < ``<project>/agentkernel.toml``, then env, then
+    ``overrides``. State paths are anchored to the agent home (global fields) or
+    the project root (project fields); ``working_dir`` defaults to the project
+    root. Returns ``(config, project_config_path)``.
+    """
+    from agentkernel.paths import (
+        agent_home,
+        anchor_path,
+        find_project_config,
+        find_project_root,
+        global_config_path,
+    )
+
+    env = os.environ if env is None else env
+    home = agent_home(env)
+    project_root = find_project_root(cwd)
+    values: dict[str, Any] = {}
+    project_config_path: Path | None = None
+
+    if config_arg is not None:
+        explicit = Path(config_arg)
+        if explicit.is_file():
+            values.update(_read_config_fields(explicit))
+            project_config_path = explicit
+    else:
+        gpath = global_config_path(home)
+        if gpath.is_file():
+            values.update(_read_config_fields(gpath))
+        ppath = find_project_config(project_root)
+        if ppath is not None:
+            values.update(_read_config_fields(ppath))
+            project_config_path = ppath
+
+    for name, typ in _FIELD_TYPES.items():
+        raw = env.get(ENV_PREFIX + name.upper())
+        if raw is not None:
+            values[name] = _coerce(raw, typ)
+    values.update({k: v for k, v in overrides.items() if k in _FIELD_TYPES})
+
+    config = Config(**values)
+    defaults = Config()
+
+    if config.working_dir in (".", "", None):
+        config.working_dir = str(project_root)
+    else:
+        config.working_dir = anchor_path(config.working_dir, base=project_root)
+
+    for name in _GLOBAL_PATH_FIELDS:
+        value = getattr(config, name)
+        if value is None:
+            continue
+        base = home if value == getattr(defaults, name) else project_root
+        setattr(config, name, anchor_path(value, base=base))
+
+    for name in _PROJECT_PATH_FIELDS:
+        value = getattr(config, name)
+        if value is None:
+            if name == "memory_dir":
+                config.memory_dir = anchor_path(".agentkernel/memory", base=project_root)
+            continue
+        setattr(config, name, anchor_path(value, base=project_root))
+
+    return config, project_config_path
+
 
 def _coerce(raw: str, typ: Any) -> Any:
     """Coerce an environment string to the field's declared type."""

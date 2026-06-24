@@ -26,7 +26,8 @@ from pathlib import Path
 from agentkernel.agent import Agent
 from agentkernel.approval import AutoApprover, CliApprover, Sandbox, make_sandbox
 from agentkernel.budget import BudgetGuard
-from agentkernel.config import Config
+from agentkernel.config import Config, resolve_config
+from agentkernel.paths import agent_home, global_config_path
 from agentkernel.context import ContextManager, ModelSummarizer
 from agentkernel.embeddings import EmbeddingError, OpenAIEmbeddingProvider
 from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
@@ -582,7 +583,8 @@ def run_sessions(
 def run_background(
     prompt: str,
     *,
-    config_path: str = "agentkernel.toml",
+    config_path: str | None = None,
+    cwd: str | None = None,
     log_dir: str = ".agentkernel/traces",
     spawn=None,
     output_fn: Callable[[str], None] = print,
@@ -604,7 +606,12 @@ def run_background(
     out_dir = Path(log_dir).parent / "background"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{uuid.uuid4().hex[:8]}.out"
-    argv = [sys.executable, "-m", "agentkernel", "--config", config_path, "run", prompt]
+    argv = [sys.executable, "-m", "agentkernel"]
+    if config_path:
+        argv += ["--config", config_path]
+    if cwd:
+        argv += ["-C", cwd]  # let the detached child resolve config from the project
+    argv += ["run", prompt]
 
     def _default_spawn(args, *, stdout):
         kwargs = {
@@ -1040,7 +1047,15 @@ def _active_profile(config: Config, args: argparse.Namespace) -> Profile | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agentkernel", description="Agent kernel CLI")
     parser.add_argument(
-        "--config", default="agentkernel.toml", help="path to the TOML config file"
+        "--config",
+        default=None,
+        help="explicit TOML config file (skips global/project discovery)",
+    )
+    parser.add_argument(
+        "-C",
+        "--cwd",
+        default=None,
+        help="run as if launched from this directory (sets the project root)",
     )
     parser.add_argument(
         "--verbose-trace",
@@ -1182,7 +1197,11 @@ def main(argv: list[str] | None = None) -> int:
     if command == "new":
         return run_new(args.kind, args.name, force=args.force)
 
-    config = Config.load(args.config)
+    config, project_config_path = resolve_config(args.config, cwd=args.cwd or ".")
+    # The concrete config path to hand to subprocesses / MCP discovery.
+    effective_config_path = args.config or (
+        str(project_config_path) if project_config_path else None
+    )
     if args.skill:
         config.skills = list(dict.fromkeys(config.skills + args.skill))
     if args.model:
@@ -1211,7 +1230,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_kanban(config, args.action, args.rest)
     if command == "run" and getattr(args, "background", False):
         prompt = _read_prompt_file(args.file) if args.file else (args.prompt or "")
-        return run_background(prompt, config_path=args.config, log_dir=config.log_dir)
+        return run_background(
+            prompt,
+            config_path=effective_config_path,
+            cwd=config.working_dir,
+            log_dir=config.log_dir,
+        )
 
     # Load profile early so its model_override and rubric feed into config for
     # every command (run, repl, eval, loop, improve).
@@ -1250,7 +1274,17 @@ def main(argv: list[str] | None = None) -> int:
             streak=args.streak,
         )
 
-    mcp_servers = load_mcp_servers(args.config)
+    # Merge MCP servers from the global config and the project config (or just
+    # the explicit file), so servers can be declared once for all projects.
+    if args.config:
+        mcp_servers = load_mcp_servers(args.config)
+    else:
+        mcp_servers = []
+        gpath = global_config_path(agent_home())
+        if gpath.is_file():
+            mcp_servers += load_mcp_servers(gpath)
+        if project_config_path is not None:
+            mcp_servers += load_mcp_servers(project_config_path)
     budget = BudgetGuard(
         max_cost_usd=config.max_cost_usd,
         max_input_tokens=config.max_input_tokens_per_run,

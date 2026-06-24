@@ -1,7 +1,13 @@
-# agentkernel configuration (copy to agentkernel.toml).
-# Precedence: explicit args > AGENTKERNEL_* env vars > this file > defaults.
-# API keys are read ONLY from the environment (ANTHROPIC_API_KEY, OPENAI_API_KEY,
-# …) and must never be placed here.
+# agentkernel configuration.
+# This file is the PROJECT config (committed per repo). The same keys also work
+# in the user-global config at ~/.agentkernel/config.toml (or $AGENTKERNEL_HOME),
+# which applies to every project; this project file overrides it.
+# Precedence: --config > AGENTKERNEL_* env > project agentkernel.toml > global
+#             ~/.agentkernel/config.toml > defaults.
+# Run against another directory with:  agentkernel -C /path/to/project run "..."
+# State: global brain (memory/graph/skills/profiles/cron) lives under the home;
+# project sessions (traces/kanban/checkpoints) live under <project>/.agentkernel.
+# API keys are read ONLY from the environment and must never be placed here.
 
 provider = "anthropic"            # "anthropic" | "openai" | "local"
 model = "claude-sonnet-4-6"
