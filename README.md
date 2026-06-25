@@ -88,6 +88,7 @@ uv run agentkernel run --image diagram.png "explain this"   # attach an image (r
 uv run agentkernel skill list                 # list discovered skills
 uv run agentkernel skill pack code-review     # package a skill into code-review.skill.zip
 uv run agentkernel skill install cr.skill.zip # install a shared skill bundle into skills/
+source <(agentkernel completion bash)         # shell completion (bash | zsh | fish)
 uv run agentkernel improve                    # reflect on the latest trace, write a rule note
 uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
 uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report

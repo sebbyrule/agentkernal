@@ -608,6 +608,58 @@ def run_new(
     return 0
 
 
+def run_completion(
+    shell: str, commands: list[str], *, output_fn: Callable[[str], None] = print
+) -> int:
+    """Print a shell completion script for ``agentkernel`` (§18.7).
+
+    Completes the subcommand at the first position and defers to file completion
+    afterwards. The command list is passed in from the live parser so the script
+    never drifts from the actual subcommands.
+    """
+    words = " ".join(commands)
+    if shell == "bash":
+        script = f"""\
+# agentkernel bash completion. Install:  source <(agentkernel completion bash)
+_agentkernel_completion() {{
+    local cur="${{COMP_WORDS[COMP_CWORD]}}"
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=( $(compgen -W "{words}" -- "$cur") )
+    else
+        COMPREPLY=( $(compgen -f -- "$cur") )
+    fi
+}}
+complete -F _agentkernel_completion agentkernel
+"""
+    elif shell == "zsh":
+        script = f"""\
+#compdef agentkernel
+# agentkernel zsh completion. Install:  agentkernel completion zsh > ~/.zsh/_agentkernel
+_agentkernel() {{
+    local -a commands
+    commands=({words})
+    if (( CURRENT == 2 )); then
+        compadd -- $commands
+    else
+        _files
+    fi
+}}
+_agentkernel "$@"
+"""
+    elif shell == "fish":
+        lines = [
+            "# agentkernel fish completion. Install:  "
+            "agentkernel completion fish > ~/.config/fish/completions/agentkernel.fish",
+            f'complete -c agentkernel -n "__fish_use_subcommand" -a "{words}"',
+        ]
+        script = "\n".join(lines) + "\n"
+    else:
+        output_fn(f"[unsupported shell: {shell}] choose bash, zsh, or fish")
+        return 1
+    output_fn(script)
+    return 0
+
+
 def run_skill(
     config: Config,
     action: str,
@@ -1402,6 +1454,11 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="overwrite on `install`"
     )
 
+    completion_parser = subparsers.add_parser(
+        "completion", help="print a shell completion script (bash/zsh/fish)"
+    )
+    completion_parser.add_argument("shell", choices=("bash", "zsh", "fish"))
+
     args = parser.parse_args(argv)
     command = getattr(args, "command", None) or "repl"
 
@@ -1417,6 +1474,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if command == "new":
         return run_new(args.kind, args.name, force=args.force)
+    if command == "completion":
+        return run_completion(args.shell, sorted(subparsers.choices))
 
     config, project_config_path = resolve_config(args.config, cwd=args.cwd or ".")
     # The concrete config path to hand to subprocesses / MCP discovery.

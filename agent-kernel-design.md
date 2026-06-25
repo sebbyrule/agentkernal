@@ -627,7 +627,7 @@ within each group is rough priority. Nothing here is committed.
 | **`insights` command** ✅ | reads telemetry | **Done** (`insights.py`, `agentkernel insights [--days N]`). Aggregates the JSONL traces into sessions/turns/tokens/cost, a per-model breakdown, and tool-frequency with error counts — pure reading of the stable §12 schema, offline. |
 | **`doctor` command** ✅ | standalone | **Done** (`doctor.py`, `agentkernel doctor`). Network-free checks: Python version, required deps, provider credentials, sandbox (docker CLI), embedding key for semantic search, curses on Windows, writable log dir. Exits non-zero on any failure. |
 | **Plugin discovery seam** ✅ | tool registration | **Done** (`plugins.py`, `enable_plugins`/`plugins_dir`). Auto-imports `plugins/*.py` exposing `tools()` or `TOOLS`; each spec registers like a builtin. A bad plugin is reported, not fatal. Opt-in because importing executes code. |
-| **Shell completions** | CLI | Deferred — `agentkernel completion bash`/`zsh`. Trivial DX polish, low priority. |
+| **Shell completions** ✅ | CLI | **Done** (`run_completion`, `agentkernel completion bash|zsh|fish`). Emits a static completion script that completes the subcommand at the first position and defers to file completion after; the command list is read from the live argparse subparsers so it never drifts from the real commands. |
 
 ### 18.8 Bundled content & templates (assets, not engine work) — ✅ done
 
