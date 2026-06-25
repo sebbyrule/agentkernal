@@ -614,11 +614,11 @@ within each group is rough priority. Nothing here is committed.
 | **Model router for auxiliary work** | config | Generalize today's single `summarizer_model` into named roles (summarize / judge / classify-risk) so compaction, evals, and `smart` approval can each pick a cheap model. *(Deferred — separate `summarizer_model` / `judge_model` / `approval_judge_model` already exist; unifying them is a refactor, not new capability.)* |
 | **More first-class adapters** | provider | The OpenAI-compatible `local` adapter already covers many endpoints; add thin named adapters (Gemini, OpenRouter, DeepSeek) only where the wire shape genuinely differs. *(Deferred — `local` covers OpenAI-compatible endpoints today.)* |
 
-### 18.6 Multimodality
+### 18.6 Multimodality — ✅ done
 
 | Idea | Seam | Notes |
 |---|---|---|
-| **Image input in canonical messages** | canonical types | Extend `Message.content` to allow typed content parts (text + image refs) and teach each adapter to translate them. The biggest single change here — it touches §4 types and every adapter — but still not the loop. Gate behind a capability flag so text-only providers are unaffected. |
+| **Image input in canonical messages** ✅ | canonical types | **Done** (`types.ImageContent`, `Message.images`). Images ride alongside `Message.content` as typed parts (rather than turning `content` into a union, so every existing `m.content` reader is untouched). Each adapter translates them: Anthropic `image` blocks (base64/url `source`), OpenAI/local `image_url` content parts (data-URI or url). Gated by `Provider.supports_images` — Anthropic/OpenAI `True`, `local` opt-in via `local_supports_images` for vision endpoints — so a text-only provider silently drops images instead of breaking. `ImageContent.from_path`/`from_url`, a flat per-image token charge in the estimator (§9.1), and `agentkernel run --image PATH_OR_URL` (repeatable; warns if the provider can't accept images). Loop untouched. |
 
 ### 18.7 Observability & DX — ✅ done (completions deferred)
 

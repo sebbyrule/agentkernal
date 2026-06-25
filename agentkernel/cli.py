@@ -50,6 +50,7 @@ from agentkernel.subagent import make_spawn_tool
 from agentkernel.telemetry import JsonlTelemetry, NullTelemetry
 from agentkernel.tools import ToolRegistry
 from agentkernel.tools.builtin import default_tools
+from agentkernel.types import ImageContent
 
 _BANNER = (
     "agentkernel REPL - type your message and press enter. Commands: /exit, "
@@ -492,6 +493,19 @@ def repl(
     return 0
 
 
+def _load_images(specs: list[str] | None) -> list[ImageContent] | None:
+    """Build ImageContent from --image specs (http(s) URL or local file path)."""
+    if not specs:
+        return None
+    images: list[ImageContent] = []
+    for spec in specs:
+        if spec.startswith(("http://", "https://")):
+            images.append(ImageContent.from_url(spec))
+        else:
+            images.append(ImageContent.from_path(spec))
+    return images
+
+
 def run_once(
     agent: Agent,
     prompt: str,
@@ -500,11 +514,18 @@ def run_once(
     output_fn: Callable[[str], None] = print,
     stream_fn: Callable[[str], None] | None = None,
     config: Config | None = None,
+    images: list[ImageContent] | None = None,
 ) -> int:
     """Execute a single non-interactive turn and print (or stream) the answer."""
     cfg = config or agent.config
     streaming = stream_fn is not None and getattr(cfg, "stream", True)
     streamed = {"any": False}
+
+    if images and not getattr(agent._provider_for(profile), "supports_images", False):
+        output_fn(
+            f"[warning] provider {cfg.provider!r} (model {cfg.model!r}) does not "
+            "accept images; sending text only"
+        )
 
     def on_text(text: str) -> None:
         streamed["any"] = True
@@ -512,7 +533,10 @@ def run_once(
 
     try:
         answer = agent.run(
-            prompt, profile=profile, on_text=on_text if streaming else None
+            prompt,
+            profile=profile,
+            on_text=on_text if streaming else None,
+            images=images,
         )
     except ProviderError as exc:
         output_fn(f"[provider error] {exc}")
@@ -1219,6 +1243,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run detached in the background; output goes to a file",
     )
+    run_parser.add_argument(
+        "--image",
+        action="append",
+        metavar="PATH_OR_URL",
+        help="attach an image to the prompt (repeatable); a local path or http(s) URL",
+    )
     improve_parser = subparsers.add_parser(
         "improve", help="reflect on a session trace and write an improvement note"
     )
@@ -1490,8 +1520,14 @@ def main(argv: list[str] | None = None) -> int:
             prompt = args.prompt
             if args.file:
                 prompt = _read_prompt_file(args.file)
+            images = _load_images(getattr(args, "image", None))
             return run_once(
-                agent, prompt or "", profile=profile, stream_fn=stream_fn, config=config
+                agent,
+                prompt or "",
+                profile=profile,
+                stream_fn=stream_fn,
+                config=config,
+                images=images,
             )
         return repl(agent, config=config, stream_fn=stream_fn)
     finally:

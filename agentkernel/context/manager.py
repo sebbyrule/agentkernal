@@ -24,6 +24,11 @@ from agentkernel.types import Message
 if TYPE_CHECKING:
     from agentkernel.providers import Provider
 
+# Flat token charge per attached image (design §18.6). A rough upper-mid estimate
+# for a typical tiled image; cheaper than measuring the base64 payload and avoids
+# wildly over-counting an inline data URI.
+IMAGE_TOKEN_ESTIMATE = 1000
+
 # A summarizer turns a list of (old) messages into one summary string. The
 # default is the deterministic structural fallback below; a model-based
 # summarizer can be injected here (design §9.2).
@@ -40,13 +45,19 @@ class CompactionEvent:
 
 
 def estimate_tokens(message: Message) -> int:
-    """Conservative chars/4 estimate for one message (design §9.1)."""
+    """Conservative chars/4 estimate for one message (design §9.1).
+
+    Images are not text, so they are charged a flat per-image estimate rather
+    than by their (large) base64 length — close enough to keep the budget honest
+    without over-counting an inline data URI.
+    """
     chars = len(message.content or "")
     for tc in message.tool_calls:
         chars += len(tc.name) + len(json.dumps(tc.arguments))
     for r in message.tool_results:
         chars += len(r.content or "")
-    return max(1, chars // CHARS_PER_TOKEN)
+    image_tokens = len(message.images) * IMAGE_TOKEN_ESTIMATE
+    return max(1, chars // CHARS_PER_TOKEN + image_tokens)
 
 
 def structural_summary(messages: list[Message]) -> str:

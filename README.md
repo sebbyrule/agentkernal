@@ -84,6 +84,7 @@ uv run agentkernel tui                        # full-screen curses terminal UI
 uv run agentkernel run "your prompt"          # single non-interactive run, prints the answer
 uv run agentkernel run --file task.md         # single run from a prompt file
 uv run agentkernel run --background "..."      # detached run; output goes to a file
+uv run agentkernel run --image diagram.png "explain this"   # attach an image (repeatable; path or URL)
 uv run agentkernel improve                    # reflect on the latest trace, write a rule note
 uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
 uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report
@@ -164,6 +165,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 | `provider` | `anthropic` | `anthropic` \| `openai` \| `local` |
 | `model` | `claude-sonnet-4-6` | model id for the selected provider |
 | `base_url` | `None` | endpoint for `provider = "local"` |
+| `local_supports_images` | `False` | opt in to sending images to a vision-capable `local` endpoint (Anthropic/OpenAI accept images automatically) |
 | `max_output_tokens` | `4096` | reply token cap |
 | `output_reserve` | `8192` | budget headroom reserved for the reply |
 | `max_iterations` | `25` | loop guard against runaway sessions |
@@ -248,7 +250,8 @@ Hand-written `httpx` adapters for **Anthropic** (Messages API), **OpenAI** (Chat
 - translates canonical messages/tools to the provider's exact wire shape and back,
 - handles the **tool-result pairing** fan-out (Anthropic: all results in one `user` message of `tool_result` blocks; OpenAI: one `role:"tool"` message per result),
 - reports cache read/write token counts where available,
-- applies cache markers on the stable prefix (Anthropic `cache_control: ephemeral`).
+- applies cache markers on the stable prefix (Anthropic `cache_control: ephemeral`),
+- translates **image input** (`Message.images`) to each wire shape (Anthropic `image` blocks, OpenAI/local `image_url` parts), gated by `Provider.supports_images` so a text-only provider drops images instead of erroring.
 
 Translation is implemented as **pure functions** separate from the HTTP call, which is what makes adapter behavior testable offline. The adapters share one `httpx` transport ([`providers/_http.py`](agentkernel/providers/_http.py)) that retries transient failures (timeouts and `429`/`5xx`), honoring a server `Retry-After` header (bounded) when present, and raises `ProviderError` only once retries are exhausted.
 

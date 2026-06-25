@@ -41,14 +41,28 @@ def render_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
 
 
 def render_messages(
-    messages: list[Message], system: str | None = None
+    messages: list[Message],
+    system: str | None = None,
+    *,
+    include_images: bool = True,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if system:
         out.append({"role": "system", "content": system})
     for m in messages:
         if m.role == "user":
-            out.append({"role": "user", "content": m.content})
+            if m.images and include_images:
+                # Multimodal content parts: text first, then image_url parts.
+                parts: list[dict[str, Any]] = []
+                if m.content:
+                    parts.append({"type": "text", "text": m.content})
+                parts.extend(
+                    {"type": "image_url", "image_url": {"url": img.as_data_uri()}}
+                    for img in m.images
+                )
+                out.append({"role": "user", "content": parts})
+            else:
+                out.append({"role": "user", "content": m.content})
         elif m.role == "assistant":
             msg: dict[str, Any] = {"role": "assistant", "content": m.content or None}
             if m.tool_calls:
@@ -176,10 +190,12 @@ class OpenAIProvider:
         require_key: bool = True,
         env_key: str = "OPENAI_API_KEY",
         send_reasoning: bool = True,
+        supports_images: bool = True,
     ) -> None:
         self.name = name
         self.model = model
         self.context_window = context_window
+        self.supports_images = supports_images
         self._base_url = base_url.rstrip("/")
         self._require_key = require_key
         self._send_reasoning = send_reasoning
@@ -196,6 +212,7 @@ class OpenAIProvider:
         clone.name = self.name
         clone.model = model
         clone.context_window = self.context_window
+        clone.supports_images = self.supports_images
         clone._base_url = self._base_url
         clone._require_key = self._require_key
         clone._send_reasoning = self._send_reasoning
@@ -219,7 +236,9 @@ class OpenAIProvider:
             "model": self.model,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "messages": render_messages(messages, system),
+            "messages": render_messages(
+                messages, system, include_images=self.supports_images
+            ),
         }
         # reasoning_effort is honored by OpenAI reasoning models; only sent when a
         # profile asks for it, and never for local endpoints that may reject it.

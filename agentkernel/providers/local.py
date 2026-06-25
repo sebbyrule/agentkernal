@@ -21,6 +21,7 @@ class LocalProvider(OpenAIProvider):
         base_url: str = DEFAULT_BASE_URL,
         api_key: str | None = None,
         context_window: int = DEFAULT_CONTEXT_WINDOW,
+        supports_images: bool = False,
     ) -> None:
         super().__init__(
             model,
@@ -31,4 +32,7 @@ class LocalProvider(OpenAIProvider):
             require_key=False,  # local endpoints commonly need no key
             env_key="LOCAL_API_KEY",
             send_reasoning=False,  # arbitrary local models may reject reasoning_effort
+            # Off by default: only vision-capable local models accept image_url
+            # parts; opt in when running e.g. a LLaVA/Qwen-VL endpoint.
+            supports_images=supports_images,
         )

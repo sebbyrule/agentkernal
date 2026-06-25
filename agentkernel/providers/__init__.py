@@ -31,5 +31,9 @@ def make_provider(config: Config) -> Provider:
         return OpenAIProvider(config.model)
     if config.provider == "local":
         kwargs = {} if config.base_url is None else {"base_url": config.base_url}
-        return LocalProvider(config.model, **kwargs)
+        return LocalProvider(
+            config.model,
+            supports_images=getattr(config, "local_supports_images", False),
+            **kwargs,
+        )
     raise ProviderError(f"unknown provider: {config.provider!r}")

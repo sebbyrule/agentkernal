@@ -23,6 +23,7 @@ class Config:
     provider: str = "anthropic"  # "anthropic" | "openai" | "local"
     model: str = "claude-sonnet-4-6"
     base_url: str | None = None  # for local/OpenAI-compatible endpoints
+    local_supports_images: bool = False  # local endpoint accepts image_url parts (§18.6)
     max_output_tokens: int = 4096
     output_reserve: int = 8192  # budget headroom for the reply
     max_iterations: int = 25

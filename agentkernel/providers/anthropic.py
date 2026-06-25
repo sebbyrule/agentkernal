@@ -65,11 +65,28 @@ def render_system(system: str | None) -> list[dict[str, Any]] | None:
     return [{"type": "text", "text": system, "cache_control": _EPHEMERAL}]
 
 
+def _image_block(img: Any) -> dict[str, Any]:
+    """Render a canonical ImageContent to an Anthropic image content block."""
+    if img.kind == "url":
+        source = {"type": "url", "url": img.data}
+    else:
+        source = {"type": "base64", "media_type": img.media_type, "data": img.data}
+    return {"type": "image", "source": source}
+
+
 def render_messages(messages: list[Message]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in messages:
         if m.role == "user":
-            out.append({"role": "user", "content": m.content})
+            if m.images:
+                # A multimodal user turn becomes a block list: text then images.
+                blocks: list[dict[str, Any]] = []
+                if m.content:
+                    blocks.append({"type": "text", "text": m.content})
+                blocks.extend(_image_block(img) for img in m.images)
+                out.append({"role": "user", "content": blocks})
+            else:
+                out.append({"role": "user", "content": m.content})
         elif m.role == "assistant":
             if m.tool_calls:
                 blocks: list[dict[str, Any]] = []
@@ -204,6 +221,7 @@ def accumulate_stream(
 
 class AnthropicProvider:
     name = "anthropic"
+    supports_images = True
 
     def __init__(
         self,

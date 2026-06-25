@@ -67,13 +67,15 @@ class Agent:
         *,
         profile: Any | None = None,
         on_text: Any | None = None,
+        images: Any | None = None,
     ) -> str:
         """Drive the loop until a final answer or the max-iteration guard.
 
         ``profile`` (design §13, Phase 5) is accepted but, in the kernel, only
         ``tool_filter`` / ``system_prompt`` are honored if trivially present.
         ``on_text`` (when set) receives streamed text deltas; the loop contract is
-        otherwise unchanged.
+        otherwise unchanged. ``images`` (a list of ``ImageContent``) attaches to
+        the user turn; adapters that can't accept images ignore them (§18.6).
         """
         session_id = getattr(self.telemetry, "session_id", str(uuid.uuid4()))
 
@@ -84,7 +86,11 @@ class Agent:
                 self.context.add(message)
 
         self.context.add(
-            Message(role="user", content=self._prepare_user_message(user_input))
+            Message(
+                role="user",
+                content=self._prepare_user_message(user_input),
+                images=list(images) if images else [],
+            )
         )
 
         # Assemble the cacheable prefix ONCE per run and reuse the same objects

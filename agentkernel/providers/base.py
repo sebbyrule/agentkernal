@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 class Provider(Protocol):
     name: str
     context_window: int  # total token capacity of the selected model
+    supports_images: bool  # whether the adapter sends Message.images (design §18.6)
 
     def complete(
         self,

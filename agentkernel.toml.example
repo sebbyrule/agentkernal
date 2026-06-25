@@ -12,6 +12,9 @@
 provider = "anthropic"            # "anthropic" | "openai" | "local"
 model = "claude-sonnet-4-6"
 # base_url = "http://localhost:11434/v1"   # for provider = "local"
+# local_supports_images = false            # set true for a vision-capable local endpoint
+#                                          # (anthropic/openai accept images automatically).
+#                                          # Attach images with: agentkernel run --image PATH_OR_URL "..."
 
 max_output_tokens = 4096
 output_reserve = 8192
