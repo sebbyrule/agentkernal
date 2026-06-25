@@ -10,9 +10,9 @@ First packaged release: `agentkernel` is installable from PyPI and runnable from
 any directory.
 
 ### Packaging
-- Installable as a CLI: `uv tool install agentkernel` / `pipx install agentkernel`
-  / `pip install agentkernel`, with the `agentkernel` console script and
-  `python -m agentkernel`.
+- Installable as a CLI: `uv tool install agentkernel-cli` / `pipx install
+  agentkernel-cli` / `pip install agentkernel-cli` (the PyPI distribution name;
+  the command and import name remain `agentkernel`), plus `python -m agentkernel`.
 - Full project metadata (Apache-2.0 license, authors, classifiers, URLs); the
   scaffolding `templates/` ship inside the wheel so `agentkernel new` works after
   a global install.

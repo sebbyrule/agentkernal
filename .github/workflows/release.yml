@@ -4,7 +4,7 @@ name: Release
 #   git tag v0.1.0 && git push origin v0.1.0
 #
 # Uses PyPI Trusted Publishing (OIDC) — no API token needed. One-time setup:
-# on PyPI, add a trusted publisher for project "agentkernel" with owner
+# on PyPI, add a trusted publisher for project "agentkernel-cli" with owner
 # "sebbyrule", repo "agentkernal", workflow "release.yml", environment "pypi".
 
 on:

@@ -28,7 +28,7 @@ Requires **Python 3.11+**.
 **As a CLI tool** (recommended for everyday use — puts `agentkernel` on your `PATH`):
 
 ```bash
-uv tool install agentkernel      # or: pipx install agentkernel  /  pip install agentkernel
+uv tool install agentkernel-cli  # or: pipx install agentkernel-cli  /  pip install agentkernel-cli
 agentkernel init                 # scaffold ./agentkernel.toml (or: agentkernel init --global)
 agentkernel run "summarize the failing tests"
 ```
