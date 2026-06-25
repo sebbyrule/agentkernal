@@ -97,8 +97,8 @@ class MemoryCurator:
 
     def __init__(
         self,
-        notes: "NoteStore",
-        provider: "Provider",
+        notes: NoteStore,
+        provider: Provider,
         *,
         max_tokens: int = 1024,
         dedup_threshold: float = 0.8,

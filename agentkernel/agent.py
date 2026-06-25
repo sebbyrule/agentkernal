@@ -11,6 +11,7 @@ produces a final answer.
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from agentkernel.budget import BudgetGuard
@@ -60,11 +61,19 @@ class Agent:
         self.notes = notes
         self.context_source = context_source
 
-    def run(self, user_input: str, *, profile: Any | None = None) -> str:
+    def run(
+        self,
+        user_input: str,
+        *,
+        profile: Any | None = None,
+        on_text: Any | None = None,
+    ) -> str:
         """Drive the loop until a final answer or the max-iteration guard.
 
         ``profile`` (design §13, Phase 5) is accepted but, in the kernel, only
         ``tool_filter`` / ``system_prompt`` are honored if trivially present.
+        ``on_text`` (when set) receives streamed text deltas; the loop contract is
+        otherwise unchanged.
         """
         session_id = getattr(self.telemetry, "session_id", str(uuid.uuid4()))
 
@@ -97,6 +106,7 @@ class Agent:
                 max_tokens=self.config.max_output_tokens,
                 system=system,
                 reasoning=reasoning,
+                on_text=on_text,
             )
             self.context.add(resp.message)
             compaction = self.context.take_compaction()
@@ -130,27 +140,44 @@ class Agent:
                 self._persist_memory(session_id)
                 return "Plan denied by user."
 
-            results: list[ToolResult] = []
-            outcomes: list[ToolOutcome] = []
-            for call, spec, err in zip(tool_calls, specs, validation_errors, strict=True):
+            # Validate + approve sequentially so interactive approval prompts
+            # stay ordered and un-interleaved; then execute the approved calls,
+            # concurrently when ``config.tool_concurrency > 1`` (design §7 said
+            # the structure must allow concurrency — this is it). Results are
+            # placed back by index so §8 pairing and ordering are preserved.
+            results: list[ToolResult] = [None] * len(tool_calls)  # type: ignore[list-item]
+            outcomes: list[ToolOutcome] = [None] * len(tool_calls)  # type: ignore[list-item]
+            pending: list[int] = []
+            for idx, (call, spec, err) in enumerate(
+                zip(tool_calls, specs, validation_errors, strict=True)
+            ):
                 if err:
-                    results.append(ToolResult(call.id, err, is_error=True))
-                    outcomes.append(ToolOutcome(call.name, call.arguments, None, True))
-                    continue
-                if (
+                    results[idx] = ToolResult(call.id, err, is_error=True)
+                    outcomes[idx] = ToolOutcome(call.name, call.arguments, None, True)
+                elif (
                     not self.config.plan_mode
                     and self._needs_approval(spec)
                     and not self.approver.approve(call, spec)
                 ):
-                    results.append(
-                        ToolResult(call.id, "Denied by user.", is_error=True)
-                    )
-                    outcomes.append(ToolOutcome(call.name, call.arguments, False, True))
-                    continue
-                result = self.registry.execute(call)
-                results.append(result)
-                outcomes.append(
-                    ToolOutcome(call.name, call.arguments, True, result.is_error)
+                    results[idx] = ToolResult(call.id, "Denied by user.", is_error=True)
+                    outcomes[idx] = ToolOutcome(call.name, call.arguments, False, True)
+                else:
+                    pending.append(idx)
+
+            def _execute(idx: int, _calls=tool_calls) -> tuple[int, ToolResult]:
+                return idx, self.registry.execute(_calls[idx])
+
+            concurrency = max(1, getattr(self.config, "tool_concurrency", 1))
+            if concurrency > 1 and len(pending) > 1:
+                with ThreadPoolExecutor(max_workers=min(concurrency, len(pending))) as pool:
+                    executed = list(pool.map(_execute, pending))
+            else:
+                executed = [_execute(idx) for idx in pending]
+            for idx, result in executed:
+                call = tool_calls[idx]
+                results[idx] = result
+                outcomes[idx] = ToolOutcome(
+                    call.name, call.arguments, True, result.is_error
                 )
 
             # Scrub secrets, then cap every result before it enters context

@@ -6,7 +6,6 @@ from __future__ import annotations
 from agentkernel.curation import MemoryCurator, _parse_json_array
 from agentkernel.memory import JsonlNoteStore
 from agentkernel.types import Message
-
 from tests.fakes import FakeProvider, text_response
 
 
@@ -30,9 +29,8 @@ def test_parse_json_array_tolerant():
 
 def test_extract_adds_durable_facts(tmp_path):
     notes = _notes(tmp_path)
-    provider = FakeProvider(
-        [text_response('[{"text": "User prefers tabs", "tags": ["prefs"]}, {"text": "Project uses uv"}]')]
-    )
+    reply = '[{"text": "User prefers tabs", "tags": ["prefs"]}, {"text": "Project uses uv"}]'
+    provider = FakeProvider([text_response(reply)])
     result = MemoryCurator(notes, provider).extract(_convo())
     assert len(result.added) == 2
     assert {n.text for n in notes.all()} == {"User prefers tabs", "Project uses uv"}
@@ -42,9 +40,8 @@ def test_extract_adds_durable_facts(tmp_path):
 def test_extract_skips_duplicates(tmp_path):
     notes = _notes(tmp_path)
     notes.add("User prefers tabs over spaces")
-    provider = FakeProvider(
-        [text_response('[{"text": "User prefers tabs over spaces"}, {"text": "Project uses uv"}]')]
-    )
+    reply = '[{"text": "User prefers tabs over spaces"}, {"text": "Project uses uv"}]'
+    provider = FakeProvider([text_response(reply)])
     result = MemoryCurator(notes, provider).extract(_convo())
     assert result.skipped_duplicates == 1
     assert [n.text for n in result.added] == ["Project uses uv"]

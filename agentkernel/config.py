@@ -28,6 +28,8 @@ class Config:
     max_iterations: int = 25
     keep_recent_turns: int = 6
     max_tool_result_tokens: int = 4096
+    tool_concurrency: int = 4  # max parallel tool-call executions per turn (1 = sequential)
+    stream: bool = True  # stream model text to the terminal as it arrives
     approval_policy: str = "always_ask"  # always_ask | auto_allow | deny_mutations | smart
     approval_judge_model: str | None = None  # model for `smart` risk judging (§18.1)
     redact_tool_output: bool = True  # scrub secret-looking strings from tool results (§18.1)
@@ -59,7 +61,7 @@ class Config:
     memory_auto_context: bool = False  # auto-inject recalled notes into user message
     memory_auto_context_limit: int = 3  # max notes per auto-recall
     memory_store_budget: int | None = None  # max tokens to persist per session
-    memory_curator_model: str | None = None  # cheap model for extract/consolidate; None -> summarizer_model/model
+    memory_curator_model: str | None = None  # cheap model for memory extract/consolidate
     semantic_search: bool = False  # rank note recall with dense embeddings
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int | None = None  # optional truncation (OpenAI only)

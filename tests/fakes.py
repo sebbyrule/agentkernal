@@ -33,6 +33,7 @@ class FakeProvider:
         temperature: float = 1.0,
         system: str | None = None,
         reasoning: str | None = None,
+        on_text=None,
     ) -> CompletionResponse:
         # Snapshot the conversation as the loop sent it this turn.
         self.calls.append(list(messages))
@@ -43,6 +44,9 @@ class FakeProvider:
             raise AssertionError("FakeProvider ran out of scripted responses")
         resp = self._responses[self._index]
         self._index += 1
+        # Simulate streaming so the loop/CLI streaming path is testable offline.
+        if on_text is not None and resp.message.content:
+            on_text(resp.message.content)
         return resp
 
 

@@ -9,9 +9,10 @@ OpenAI caches the prefix automatically, so there are no explicit cache markers â
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Iterable
 from typing import Any
 
-from agentkernel.providers._http import ProviderError, post_json_pooled
+from agentkernel.providers._http import ProviderError, post_json_pooled, stream_sse
 from agentkernel.providers.credentials import CredentialPool
 from agentkernel.tools import ToolSpec
 from agentkernel.types import CompletionResponse, Message, ToolCall, Usage
@@ -109,6 +110,55 @@ def parse_response(data: dict[str, Any]) -> CompletionResponse:
     )
 
 
+def accumulate_stream(
+    events: Iterable[dict[str, Any]],
+    on_text: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Fold OpenAI streaming chunks into a single non-streaming response dict.
+
+    Text deltas are forwarded to ``on_text``; ``tool_calls`` deltas are
+    accumulated by index (id/name arrive once, arguments arrive in fragments).
+    The result is exactly what ``parse_response`` consumes."""
+    content: list[str] = []
+    tool_calls: dict[int, dict[str, str]] = {}
+    finish = ""
+    usage: dict[str, Any] = {}
+    for event in events:
+        if event.get("usage"):
+            usage = event["usage"]
+        for choice in event.get("choices", []):
+            delta = choice.get("delta", {})
+            text = delta.get("content")
+            if text:
+                content.append(text)
+                if on_text is not None:
+                    on_text(text)
+            for tc in delta.get("tool_calls") or []:
+                slot = tool_calls.setdefault(
+                    tc.get("index", 0), {"id": "", "name": "", "arguments": ""}
+                )
+                if tc.get("id"):
+                    slot["id"] = tc["id"]
+                fn = tc.get("function", {})
+                if fn.get("name"):
+                    slot["name"] = fn["name"]
+                if fn.get("arguments"):
+                    slot["arguments"] += fn["arguments"]
+            if choice.get("finish_reason"):
+                finish = choice["finish_reason"]
+    message: dict[str, Any] = {"content": "".join(content) or None}
+    if tool_calls:
+        message["tool_calls"] = [
+            {
+                "id": slot["id"],
+                "type": "function",
+                "function": {"name": slot["name"], "arguments": slot["arguments"]},
+            }
+            for _index, slot in sorted(tool_calls.items())
+        ]
+    return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
+
+
 class OpenAIProvider:
     def __init__(
         self,
@@ -141,6 +191,7 @@ class OpenAIProvider:
         temperature: float = 1.0,
         system: str | None = None,
         reasoning: str | None = None,
+        on_text: Callable[[str], None] | None = None,
     ) -> CompletionResponse:
         if self._require_key and self._pool.current() is None:
             raise ProviderError(f"API key for provider {self.name!r} is not set")
@@ -164,6 +215,24 @@ class OpenAIProvider:
             return headers
 
         url = f"{self._base_url}/chat/completions"
+
+        if on_text is not None:
+            # Best-effort streaming: on any transport/protocol fault, fall back to
+            # the non-streaming path so the turn still completes correctly.
+            try:
+                events = stream_sse(
+                    url,
+                    headers=header_for_key(self._pool.current()),
+                    payload={
+                        **payload,
+                        "stream": True,
+                        "stream_options": {"include_usage": True},
+                    },
+                )
+                return parse_response(accumulate_stream(events, on_text))
+            except ProviderError:
+                pass
+
         return parse_response(
             post_json_pooled(
                 url, header_for_key=header_for_key, payload=payload, pool=self._pool

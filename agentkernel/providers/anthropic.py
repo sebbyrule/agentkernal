@@ -9,9 +9,11 @@ cache. No Anthropic dict escapes this module except inside ``CompletionResponse.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable, Iterable
 from typing import Any
 
-from agentkernel.providers._http import ProviderError, post_json_pooled
+from agentkernel.providers._http import ProviderError, post_json_pooled, stream_sse
 from agentkernel.providers.credentials import CredentialPool
 from agentkernel.tools import ToolSpec
 from agentkernel.types import CompletionResponse, Message, ToolCall, Usage
@@ -141,6 +143,61 @@ def parse_response(data: dict[str, Any]) -> CompletionResponse:
     )
 
 
+def accumulate_stream(
+    events: Iterable[dict[str, Any]],
+    on_text: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Fold Anthropic SSE events into a single non-streaming response dict.
+
+    Text deltas forward to ``on_text``; tool_use blocks accumulate their
+    ``input_json`` fragments and are parsed at the end. The result is exactly
+    what ``parse_response`` consumes."""
+    blocks: dict[int, dict[str, Any]] = {}
+    usage: dict[str, Any] = {}
+    stop_reason = ""
+    for event in events:
+        etype = event.get("type")
+        if etype == "message_start":
+            usage.update(event.get("message", {}).get("usage", {}) or {})
+        elif etype == "content_block_start":
+            cb = event.get("content_block", {})
+            blocks[event.get("index", 0)] = {
+                "type": cb.get("type"),
+                "text": cb.get("text", "") or "",
+                "id": cb.get("id"),
+                "name": cb.get("name"),
+                "json": "",
+            }
+        elif etype == "content_block_delta":
+            block = blocks.setdefault(
+                event.get("index", 0), {"type": "text", "text": "", "json": ""}
+            )
+            delta = event.get("delta", {})
+            if delta.get("type") == "text_delta":
+                text = delta.get("text", "")
+                block["text"] += text
+                if on_text is not None and text:
+                    on_text(text)
+            elif delta.get("type") == "input_json_delta":
+                block["json"] += delta.get("partial_json", "")
+        elif etype == "message_delta":
+            stop_reason = event.get("delta", {}).get("stop_reason", stop_reason)
+            usage.update(event.get("usage", {}) or {})
+    content: list[dict[str, Any]] = []
+    for _index, block in sorted(blocks.items()):
+        if block.get("type") == "text":
+            content.append({"type": "text", "text": block["text"]})
+        elif block.get("type") == "tool_use":
+            try:
+                parsed = json.loads(block["json"] or "{}")
+            except json.JSONDecodeError:
+                parsed = {}
+            content.append(
+                {"type": "tool_use", "id": block["id"], "name": block["name"], "input": parsed}
+            )
+    return {"content": content, "stop_reason": stop_reason, "usage": usage}
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -167,6 +224,7 @@ class AnthropicProvider:
         temperature: float = 1.0,
         system: str | None = None,
         reasoning: str | None = None,
+        on_text: Callable[[str], None] | None = None,
     ) -> CompletionResponse:
         if self._pool.current() is None:
             raise ProviderError("ANTHROPIC_API_KEY is not set in the environment")
@@ -192,6 +250,18 @@ class AnthropicProvider:
                 "anthropic-version": API_VERSION,
                 "content-type": "application/json",
             }
+
+        if on_text is not None:
+            # Best-effort streaming with a non-streaming fallback on any fault.
+            try:
+                events = stream_sse(
+                    API_URL,
+                    headers=header_for_key(self._pool.current()),
+                    payload={**payload, "stream": True},
+                )
+                return parse_response(accumulate_stream(events, on_text))
+            except ProviderError:
+                pass
 
         return parse_response(
             post_json_pooled(

@@ -27,7 +27,6 @@ from agentkernel.agent import Agent
 from agentkernel.approval import AutoApprover, CliApprover, Sandbox, make_sandbox
 from agentkernel.budget import BudgetGuard
 from agentkernel.config import Config, resolve_config
-from agentkernel.paths import agent_home, global_config_path
 from agentkernel.context import ContextManager, ModelSummarizer
 from agentkernel.embeddings import EmbeddingError, OpenAIEmbeddingProvider
 from agentkernel.knowledge import KnowledgeGraph, make_graph_tools
@@ -40,6 +39,7 @@ from agentkernel.memory import (
     make_memory_tools,
     make_note_store,
 )
+from agentkernel.paths import agent_home, global_config_path
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.providers import ProviderError, make_provider
@@ -425,8 +425,14 @@ def repl(
     config: Config | None = None,
     input_fn: Callable[[str], str] = input,
     output_fn: Callable[[str], None] = print,
+    stream_fn: Callable[[str], None] | None = None,
 ) -> int:
-    """Read-eval-print chat over one Agent (context persists across messages)."""
+    """Read-eval-print chat over one Agent (context persists across messages).
+
+    When ``stream_fn`` is set (and config.stream), model text is written to it as
+    it arrives and the final answer is not re-printed."""
+    cfg = config or agent.config
+    streaming = stream_fn is not None and getattr(cfg, "stream", True)
     output_fn(_BANNER)
     profile = Profile(name="default")
     while True:
@@ -440,15 +446,26 @@ def repl(
         if line.lower() in _EXIT_WORDS:
             break
         if line.startswith("/"):
-            if not _handle_slash(line, agent, profile, config or agent.config, output_fn):
+            if not _handle_slash(line, agent, profile, cfg, output_fn):
                 break
             continue
+        streamed = {"any": False}
+
+        def on_text(text: str, _s=streamed) -> None:
+            _s["any"] = True
+            stream_fn(text)  # type: ignore[misc]
+
         try:
-            answer = agent.run(line, profile=profile)
+            answer = agent.run(
+                line, profile=profile, on_text=on_text if streaming else None
+            )
         except ProviderError as exc:
             output_fn(f"[provider error] {exc}")
             continue
-        output_fn(answer)
+        if streaming and streamed["any"]:
+            stream_fn("\n")  # type: ignore[misc]
+        else:
+            output_fn(answer)
     return 0
 
 
@@ -458,14 +475,29 @@ def run_once(
     *,
     profile: Profile | None = None,
     output_fn: Callable[[str], None] = print,
+    stream_fn: Callable[[str], None] | None = None,
+    config: Config | None = None,
 ) -> int:
-    """Execute a single non-interactive turn and print the final answer."""
+    """Execute a single non-interactive turn and print (or stream) the answer."""
+    cfg = config or agent.config
+    streaming = stream_fn is not None and getattr(cfg, "stream", True)
+    streamed = {"any": False}
+
+    def on_text(text: str) -> None:
+        streamed["any"] = True
+        stream_fn(text)  # type: ignore[misc]
+
     try:
-        answer = agent.run(prompt, profile=profile)
+        answer = agent.run(
+            prompt, profile=profile, on_text=on_text if streaming else None
+        )
     except ProviderError as exc:
         output_fn(f"[provider error] {exc}")
         return 1
-    output_fn(answer)
+    if streaming and streamed["any"]:
+        stream_fn("\n")  # type: ignore[misc]
+    else:
+        output_fn(answer)
     return 0
 
 
@@ -1125,6 +1157,11 @@ def main(argv: list[str] | None = None) -> int:
         help="disable per-turn progress lines in run/repl modes",
     )
     parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="disable live token streaming (print the answer when complete)",
+    )
+    parser.add_argument(
         "--profile",
         help="active profile name (overrides config.profile)",
     )
@@ -1400,7 +1437,17 @@ def main(argv: list[str] | None = None) -> int:
 
     profile = active_profile
 
-    if not args.no_progress:
+    # Live streaming writes model text to stdout as it arrives. When on, skip the
+    # per-turn progress lines so they don't interleave with the streamed text.
+    streaming = getattr(config, "stream", True) and not args.no_stream
+
+    def _stdout_stream(text: str) -> None:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    stream_fn = _stdout_stream if streaming else None
+
+    if not args.no_progress and not streaming:
         telemetry = ProgressTelemetry(telemetry, output_fn=print)
         agent.telemetry = telemetry
 
@@ -1420,8 +1467,10 @@ def main(argv: list[str] | None = None) -> int:
             prompt = args.prompt
             if args.file:
                 prompt = _read_prompt_file(args.file)
-            return run_once(agent, prompt or "", profile=profile)
-        return repl(agent, config=config)
+            return run_once(
+                agent, prompt or "", profile=profile, stream_fn=stream_fn, config=config
+            )
+        return repl(agent, config=config, stream_fn=stream_fn)
     finally:
         telemetry.close()
         for client in mcp_clients:

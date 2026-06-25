@@ -9,7 +9,9 @@ directly, so the suite stays offline (design §15).
 from __future__ import annotations
 
 import email.utils
+import json
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -90,6 +92,38 @@ def post_json(
     # A 429 that survived retries is recoverable by rotating to another key.
     err = RateLimitError if last_status == 429 else ProviderError
     raise err(f"{url} unreachable after {retries + 1} attempts; {last_detail}")
+
+
+def stream_sse(
+    url: str,
+    *,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: float = 600.0,
+) -> Iterator[dict[str, Any]]:
+    """Yield parsed ``data:`` JSON objects from a streaming (SSE) POST.
+
+    Raises ``ProviderError`` on a non-2xx status (the error body is read first).
+    Both Anthropic and OpenAI carry a ``type``/``choices`` field in each ``data:``
+    payload, so callers parse the event from the JSON itself; ``event:`` lines and
+    keep-alives are ignored. ``[DONE]`` terminates the stream.
+    """
+    with httpx.stream("POST", url, headers=headers, json=payload, timeout=timeout) as resp:
+        if resp.status_code >= 400:
+            body = resp.read().decode("utf-8", "replace")[:500]
+            raise ProviderError(f"{url} -> HTTP {resp.status_code}: {body}")
+        for raw in resp.iter_lines():
+            line = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+            line = line.strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                return
+            try:
+                yield json.loads(data)
+            except json.JSONDecodeError:
+                continue
 
 
 def post_json_pooled(
