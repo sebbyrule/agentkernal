@@ -9,8 +9,11 @@
 # project sessions (traces/kanban/checkpoints) live under <project>/.agentkernel.
 # API keys are read ONLY from the environment and must never be placed here.
 
-provider = "anthropic"            # "anthropic" | "openai" | "local"
+provider = "anthropic"            # anthropic | openai | local | openrouter | deepseek | gemini
 model = "claude-sonnet-4-6"
+#                                 # hosted OpenAI-compatible providers read their own key env var:
+#                                 #   openrouter -> OPENROUTER_API_KEY, deepseek -> DEEPSEEK_API_KEY,
+#                                 #   gemini -> GEMINI_API_KEY  (base_url is preset; override if needed)
 # base_url = "http://localhost:11434/v1"   # for provider = "local"
 # local_supports_images = false            # set true for a vision-capable local endpoint
 #                                          # (anthropic/openai accept images automatically).

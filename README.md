@@ -162,7 +162,7 @@ Configuration loads from `agentkernel.toml` (see [`agentkernel.toml.example`](ag
 
 | Key | Default | Meaning |
 |---|---|---|
-| `provider` | `anthropic` | `anthropic` \| `openai` \| `local` |
+| `provider` | `anthropic` | `anthropic` \| `openai` \| `local` \| `openrouter` \| `deepseek` \| `gemini` |
 | `model` | `claude-sonnet-4-6` | model id for the selected provider |
 | `base_url` | `None` | endpoint for `provider = "local"` |
 | `local_supports_images` | `False` | opt in to sending images to a vision-capable `local` endpoint (Anthropic/OpenAI accept images automatically) |
@@ -245,7 +245,7 @@ MCP servers are declared separately as `[[mcp_servers]]` tables (see [MCP](#mcp-
 
 ### Providers ([`providers/`](agentkernel/providers))
 
-Hand-written `httpx` adapters for **Anthropic** (Messages API), **OpenAI** (Chat Completions), and **local** (OpenAI-compatible: Ollama, vLLM, LM Studio). Each adapter:
+Hand-written `httpx` adapters for **Anthropic** (Messages API), **OpenAI** (Chat Completions), and **local** (OpenAI-compatible: Ollama, vLLM, LM Studio). **OpenRouter**, **DeepSeek**, and **Gemini** ship as thin named adapters over the OpenAI shape — each just pins a default `base_url` and `*_API_KEY` env var, so `provider = "gemini"` works without hand-wiring an endpoint. Each adapter:
 
 - translates canonical messages/tools to the provider's exact wire shape and back,
 - handles the **tool-result pairing** fan-out (Anthropic: all results in one `user` message of `tool_result` blocks; OpenAI: one `role:"tool"` message per result),

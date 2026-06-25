@@ -20,7 +20,7 @@ DEFAULT_CONFIG_FILE = "agentkernel.toml"
 
 @dataclass
 class Config:
-    provider: str = "anthropic"  # "anthropic" | "openai" | "local"
+    provider: str = "anthropic"  # anthropic|openai|local|openrouter|deepseek|gemini
     model: str = "claude-sonnet-4-6"
     base_url: str | None = None  # for local/OpenAI-compatible endpoints
     local_supports_images: bool = False  # local endpoint accepts image_url parts (§18.6)
