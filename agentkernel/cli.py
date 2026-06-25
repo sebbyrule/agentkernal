@@ -608,6 +608,54 @@ def run_new(
     return 0
 
 
+def run_skill(
+    config: Config,
+    action: str,
+    target: str | None,
+    *,
+    out_path: str | None = None,
+    force: bool = False,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Manage shareable skill bundles: ``list`` / ``pack`` / ``install`` (§18.8)."""
+    from agentkernel.skills import SkillLibrary, install_skill, pack_skill
+
+    skills_dir = config.skills_dir
+    if action == "list":
+        library = SkillLibrary(skills_dir)
+        described = library.describe()
+        if not described:
+            output_fn(f"[no skills in {skills_dir}]")
+            return 0
+        for name, desc in described:
+            output_fn(f"- {name}: {desc}")
+        return 0
+    if action == "pack":
+        if not target:
+            output_fn("[pack] a skill name is required")
+            return 1
+        try:
+            archive = pack_skill(skills_dir, target, out_path=out_path)
+        except FileNotFoundError as exc:
+            output_fn(f"[pack] {exc}")
+            return 1
+        output_fn(f"[packed {target}: {archive}]")
+        return 0
+    if action == "install":
+        if not target:
+            output_fn("[install] an archive path is required")
+            return 1
+        try:
+            name = install_skill(target, skills_dir, force=force)
+        except (FileExistsError, ValueError, OSError) as exc:
+            output_fn(f"[install] {exc}")
+            return 1
+        output_fn(f"[installed skill {name!r} into {skills_dir}]")
+        return 0
+    output_fn(f"[unknown skill action: {action}] choose list, pack, or install")
+    return 1
+
+
 _PROJECT_CONFIG_TEMPLATE = """\
 # agentkernel project config. Global defaults live in ~/.agentkernel/config.toml
 # (or $AGENTKERNEL_HOME); keys here override them for this project.
@@ -1340,6 +1388,20 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="overwrite if the target already exists"
     )
 
+    skill_parser = subparsers.add_parser(
+        "skill", help="package and install shareable skill bundles"
+    )
+    skill_parser.add_argument(
+        "skill_action", choices=("list", "pack", "install"), help="what to do"
+    )
+    skill_parser.add_argument(
+        "target", nargs="?", help="skill name (pack) or bundle path (install)"
+    )
+    skill_parser.add_argument("--out", help="output path for `pack` (.skill.zip)")
+    skill_parser.add_argument(
+        "--force", action="store_true", help="overwrite on `install`"
+    )
+
     args = parser.parse_args(argv)
     command = getattr(args, "command", None) or "repl"
 
@@ -1383,6 +1445,14 @@ def main(argv: list[str] | None = None) -> int:
         return run_sessions(config, args.action, getattr(args, "session_id", None))
     if command == "memory":
         return run_memory(config, args.action, session=getattr(args, "session", None))
+    if command == "skill":
+        return run_skill(
+            config,
+            args.skill_action,
+            args.target,
+            out_path=getattr(args, "out", None),
+            force=getattr(args, "force", False),
+        )
     if command == "cron":
         return run_cron(config, args.action, args.rest)
     if command == "kanban":

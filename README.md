@@ -85,6 +85,9 @@ uv run agentkernel run "your prompt"          # single non-interactive run, prin
 uv run agentkernel run --file task.md         # single run from a prompt file
 uv run agentkernel run --background "..."      # detached run; output goes to a file
 uv run agentkernel run --image diagram.png "explain this"   # attach an image (repeatable; path or URL)
+uv run agentkernel skill list                 # list discovered skills
+uv run agentkernel skill pack code-review     # package a skill into code-review.skill.zip
+uv run agentkernel skill install cr.skill.zip # install a shared skill bundle into skills/
 uv run agentkernel improve                    # reflect on the latest trace, write a rule note
 uv run agentkernel eval --suite s.toml        # run an eval suite, score answers with a judge
 uv run agentkernel eval --suite s.toml -o report.json  # ...and write a JSON report

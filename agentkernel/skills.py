@@ -21,10 +21,16 @@ from __future__ import annotations
 
 import os
 import tomllib
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+# A shareable skill bundle is just a zip whose root holds a SKILL.md plus any
+# bundled resource files — the same folder shape SkillLibrary discovers, so a
+# packed skill round-trips to an installed one with no manifest format to learn.
+SKILL_BUNDLE_SUFFIX = ".skill.zip"
 
 
 @dataclass(frozen=True)
@@ -223,6 +229,74 @@ class SkillLibrary:
 # Backward-compatible alias used elsewhere in the kernel.
 DirectorySkillStore = SkillLibrary
 SkillStore = SkillLibrary
+
+
+# --- shareable bundles (§18.8) ----------------------------------------------
+
+
+def pack_skill(skills_dir: str | Path, name: str, *, out_path: str | Path | None = None) -> Path:
+    """Package skill ``name`` from ``skills_dir`` into a portable ``.skill.zip``.
+
+    Works for the two SKILL.md layouts: a ``<name>/`` folder (its files are
+    stored at the archive root, with bundled resources) or a loose ``<name>.md``
+    (stored as ``SKILL.md``). Returns the written archive path.
+    """
+    base = Path(skills_dir)
+    folder = base / name
+    loose = base / f"{name}.md"
+    out = Path(out_path) if out_path else Path(f"{name}{SKILL_BUNDLE_SUFFIX}")
+
+    if folder.is_dir() and (folder / "SKILL.md").is_file():
+        files = [p for p in sorted(folder.rglob("*")) if p.is_file()]
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in files:
+                zf.write(p, p.relative_to(folder).as_posix())
+    elif loose.is_file():
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("SKILL.md", loose.read_text(encoding="utf-8"))
+    else:
+        raise FileNotFoundError(
+            f"no SKILL.md skill named {name!r} in {base} "
+            "(only folder or loose-.md skills can be packaged)"
+        )
+    return out
+
+
+def install_skill(
+    archive: str | Path, skills_dir: str | Path, *, force: bool = False
+) -> str:
+    """Install a ``.skill.zip`` bundle into ``skills_dir/<name>/``. Returns the name.
+
+    The install directory is the skill's own ``name`` (from SKILL.md frontmatter),
+    so a renamed archive still lands correctly; it falls back to the archive
+    filename only when the frontmatter has no name. Rejects unsafe archive members
+    (absolute paths or ``..``) and any zip without a SKILL.md.
+    """
+    archive = Path(archive)
+    fallback = archive.name
+    for suffix in (SKILL_BUNDLE_SUFFIX, ".zip"):
+        if fallback.endswith(suffix):
+            fallback = fallback[: -len(suffix)]
+            break
+
+    with zipfile.ZipFile(archive) as zf:
+        members = zf.namelist()
+        for member in members:
+            parts = Path(member).parts
+            unsafe = member.startswith(("/", "\\")) or Path(member).is_absolute() or ".." in parts
+            if unsafe:
+                raise ValueError(f"unsafe path in bundle: {member!r}")
+        if "SKILL.md" not in members:
+            raise ValueError(f"{archive.name} is not a skill bundle (no SKILL.md at root)")
+
+        meta, _ = _split_frontmatter(zf.read("SKILL.md").decode("utf-8"))
+        name = str(meta.get("name") or fallback)
+        dest = Path(skills_dir) / name
+        if dest.exists() and not force:
+            raise FileExistsError(f"skill {name!r} already exists at {dest} (use --force)")
+        dest.mkdir(parents=True, exist_ok=True)
+        zf.extractall(dest)
+    return name
 
 
 def _first_line(text: str) -> str:
