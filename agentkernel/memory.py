@@ -51,7 +51,9 @@ class MemoryStore(Protocol):
 class NoteStore(Protocol):
     """Pluggable notebook of discrete facts the model reads and writes."""
 
-    def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
+    def add(
+        self, text: str, *, tags: Sequence[str] | None = None, scope: str | None = None
+    ) -> MemoryNote:
         ...
 
     def all(self) -> list[MemoryNote]:
@@ -577,14 +579,19 @@ class JsonlNoteStore:
         note.accessed = datetime.now(UTC).isoformat()
 
     def add(
-        self, text: str, tags: Sequence[str] | None = None, *, note_id: int | None = None
+        self,
+        text: str,
+        tags: Sequence[str] | None = None,
+        *,
+        note_id: int | None = None,
+        scope: str | None = None,
     ) -> MemoryNote:
         note = MemoryNote(
             text=text.strip(),
             tags=[str(t) for t in (tags or [])],
             created=datetime.now(UTC).isoformat(),
             note_id=note_id if note_id is not None else self._next_id,
-            scope=self._scope or "",
+            scope=scope if scope is not None else (self._scope or ""),
         )
         if note.note_id >= self._next_id:
             self._next_id = note.note_id + 1
@@ -1117,8 +1124,15 @@ class SqliteNoteStore:
             scope=row["scope"],
         )
 
-    def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
+    def add(
+        self,
+        text: str,
+        *,
+        tags: Sequence[str] | None = None,
+        scope: str | None = None,
+    ) -> MemoryNote:
         created = datetime.now(UTC).isoformat()
+        note_scope = scope if scope is not None else (self._scope or "")
         conn = self._connection()
         with conn:
             cursor = conn.execute(
@@ -1132,7 +1146,7 @@ class SqliteNoteStore:
                     created,
                     "",
                     0,
-                    self._scope or "",
+                    note_scope,
                 ),
             )
             note_id = cursor.lastrowid or 0
@@ -1148,7 +1162,7 @@ class SqliteNoteStore:
             note_id=note_id,
             accessed="",
             access_count=0,
-            scope=self._scope or "",
+            scope=note_scope,
         )
         return note
 

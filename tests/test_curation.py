@@ -68,6 +68,25 @@ def test_consolidate_merges_and_rebuilds(tmp_path):
     assert texts == {"User likes Python programming", "Project uses uv"}
 
 
+def test_consolidate_preserves_scope_and_never_merges_across_scopes(tmp_path):
+    notes = _notes(tmp_path)
+    # Two notes in scope "a" (will be merged), one lone note in scope "b".
+    notes.add("project a uses redis", scope="a")
+    notes.add("project a caches with redis", scope="a")
+    notes.add("project b uses postgres", scope="b")
+    # Only the "a" group has >=2 notes, so the model is asked exactly once.
+    provider = FakeProvider(
+        [text_response('[{"text": "project a uses redis for caching"}]')]
+    )
+    result = MemoryCurator(notes, provider).consolidate()
+    assert result.before == 3 and result.after == 2
+
+    by_scope = {(n.scope, n.text) for n in notes.all()}
+    # Merged "a" note keeps scope "a"; the untouched "b" note keeps scope "b".
+    assert ("a", "project a uses redis for caching") in by_scope
+    assert ("b", "project b uses postgres") in by_scope
+
+
 def test_consolidate_noop_below_two_notes(tmp_path):
     notes = _notes(tmp_path)
     notes.add("only one fact")

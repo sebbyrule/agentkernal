@@ -114,8 +114,14 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         if self._lsh_index is not None:
             self._lsh_index.upsert(note_id, vector)
 
-    def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
-        note = super().add(text, tags=tags)
+    def add(
+        self,
+        text: str,
+        *,
+        tags: Sequence[str] | None = None,
+        scope: str | None = None,
+    ) -> MemoryNote:
+        note = super().add(text, tags=tags, scope=scope)
         self._upsert_embedding(note.note_id, note.text)
         return note
 

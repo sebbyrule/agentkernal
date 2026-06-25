@@ -136,26 +136,59 @@ class MemoryCurator:
         existing = self._notes.all()
         if len(existing) < 2:
             return ConsolidationResult(len(existing), len(existing), existing)
+        # Consolidate within each namespace so distinct scopes are never merged
+        # together and every rebuilt note keeps its original scope. Without this,
+        # rebuilding via add() would re-stamp every note with the store's active
+        # scope, collapsing global and other-project notes into one namespace.
+        groups: dict[str, list[MemoryNote]] = {}
+        for note in existing:
+            groups.setdefault(note.scope, []).append(note)
+
+        new_notes: list[MemoryNote] = []
+        changed = False
+        for scope, group in groups.items():
+            rebuilt = self._consolidate_group(scope, group)
+            if rebuilt is None:  # no-op for this group (too small or unparseable)
+                new_notes.extend(group)
+            else:
+                new_notes.extend(rebuilt)
+                changed = True
+        if not changed:
+            return ConsolidationResult(len(existing), len(existing), existing)
+        return ConsolidationResult(len(existing), len(new_notes), new_notes)
+
+    def _consolidate_group(
+        self, scope: str, group: list[MemoryNote]
+    ) -> list[MemoryNote] | None:
+        """Consolidate one namespace's notes, preserving ``scope``.
+
+        Returns the rebuilt notes, or ``None`` to signal a no-op (fewer than two
+        notes, or an empty/unparseable model reply) so the caller keeps the
+        originals untouched.
+        """
+        if len(group) < 2:
+            return None
         listing = "\n".join(
             f"{n.note_id}. {n.text}"
             + (f"  [tags: {', '.join(n.tags)}]" if n.tags else "")
-            for n in existing
+            for n in group
         )
         cleaned = [
             c for c in self._ask(_CONSOLIDATE_SYSTEM, f"Current memory notes:\n{listing}")
             if str(c.get("text", "")).strip()
         ]
         if not cleaned:
-            return ConsolidationResult(len(existing), len(existing), existing)  # no-op
-        # Rebuild from the consolidated set using the store's public API so all
-        # backends (JSONL / SQLite / semantic) stay consistent.
-        for note in existing:
+            return None
+        # Rebuild this group using the store's public API (so all backends stay
+        # consistent), re-stamping each note with the group's original scope.
+        for note in group:
             self._notes.forget(note_id=note.note_id)
-        new_notes = [
-            self._notes.add(str(c["text"]).strip(), tags=c.get("tags") or [])
+        return [
+            self._notes.add(
+                str(c["text"]).strip(), tags=c.get("tags") or [], scope=scope
+            )
             for c in cleaned
         ]
-        return ConsolidationResult(len(existing), len(new_notes), new_notes)
 
     # --- internals ---------------------------------------------------------
 
