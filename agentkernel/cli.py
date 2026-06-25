@@ -480,13 +480,16 @@ _NEW_KINDS: dict[str, tuple[str, str]] = {
 
 
 def _find_templates_dir(start: Path | None = None) -> Path | None:
-    """Locate the project's templates/ directory by walking up from ``start``."""
+    """Locate the templates/ directory: nearest one walking up from ``start``,
+    else the copy bundled inside the installed package (so `new` works after a
+    global install, not just from a checkout)."""
     here = (start or Path.cwd()).resolve()
     for directory in (here, *here.parents):
         candidate = directory / "templates"
         if candidate.is_dir():
             return candidate
-    return None
+    bundled = Path(__file__).parent / "templates"
+    return bundled if bundled.is_dir() else None
 
 
 def run_new(
@@ -526,6 +529,60 @@ def run_new(
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(content, encoding="utf-8")
     output_fn(f"[created {kind}: {dest}]")
+    return 0
+
+
+_PROJECT_CONFIG_TEMPLATE = """\
+# agentkernel project config. Global defaults live in ~/.agentkernel/config.toml
+# (or $AGENTKERNEL_HOME); keys here override them for this project.
+# API keys come ONLY from the environment, never this file.
+
+provider = "anthropic"            # "anthropic" | "openai" | "local"
+model = "claude-sonnet-4-6"
+# base_url = "http://localhost:1234/v1"   # for provider = "local" (LM Studio, Ollama, vLLM)
+
+approval_policy = "always_ask"    # always_ask | auto_allow | deny_mutations | smart
+
+# Opt into the higher-level capabilities you want:
+# enable_memory_tools = true       # remember/recall long-term facts
+# enable_spawn = true              # let the model delegate to sub-agents
+# skills = ["code-review"]         # pin skills from skills_dir
+"""
+
+_GLOBAL_CONFIG_TEMPLATE = """\
+# agentkernel user-global config (applies to every project unless overridden by
+# a project agentkernel.toml). API keys come ONLY from the environment.
+
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+approval_policy = "always_ask"
+"""
+
+
+def run_init(
+    *,
+    target_dir: str = ".",
+    global_config: bool = False,
+    force: bool = False,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Scaffold a starter config: a project ``agentkernel.toml`` or the global one."""
+    if global_config:
+        dest = global_config_path(agent_home())
+        template = _GLOBAL_CONFIG_TEMPLATE
+    else:
+        dest = Path(target_dir).resolve() / "agentkernel.toml"
+        template = _PROJECT_CONFIG_TEMPLATE
+    if dest.exists() and not force:
+        output_fn(f"[exists: {dest}] pass --force to overwrite")
+        return 1
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(template, encoding="utf-8")
+    output_fn(f"[created {dest}]")
+    output_fn(
+        "Set provider/model and export your API key env var, then run: "
+        'agentkernel run "..."'
+    )
     return 0
 
 
@@ -1176,6 +1233,16 @@ def main(argv: list[str] | None = None) -> int:
     kanban_parser.add_argument(
         "rest", nargs="*", help="add: <title...>; show/complete/block/remove: <task_id>"
     )
+    init_parser = subparsers.add_parser(
+        "init", help="scaffold a starter agentkernel.toml (project or --global)"
+    )
+    init_parser.add_argument(
+        "--global", dest="global_config", action="store_true",
+        help="write the user-global ~/.agentkernel/config.toml instead of a project file",
+    )
+    init_parser.add_argument(
+        "--force", action="store_true", help="overwrite if the config already exists"
+    )
     new_parser = subparsers.add_parser(
         "new", help="scaffold a skill, profile, loop, or eval suite from a template"
     )
@@ -1193,7 +1260,13 @@ def main(argv: list[str] | None = None) -> int:
     if command == "run" and not args.prompt and not args.file:
         run_parser.error("the following arguments are required: prompt or --file")
 
-    # `new` scaffolds a file from a template; it needs no provider/config/runtime.
+    # `init` and `new` scaffold files; they need no provider/config/runtime.
+    if command == "init":
+        return run_init(
+            target_dir=args.cwd or ".",
+            global_config=getattr(args, "global_config", False),
+            force=args.force,
+        )
     if command == "new":
         return run_new(args.kind, args.name, force=args.force)
 

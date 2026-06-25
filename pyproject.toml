@@ -1,14 +1,36 @@
 [project]
 name = "agentkernel"
-version = "0.0.1"
-description = "A minimal, dependency-light kernel for a general-purpose AI agent."
-readme = "AGENT.md"
+version = "0.1.0"
+description = "A minimal, dependency-light kernel for a general-purpose AI agent — runs anywhere, brings its own brain."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Sebastian Manczak", email = "manczak.sebastian@gmail.com" }]
+keywords = ["agent", "agents", "llm", "ai", "cli", "anthropic", "openai", "mcp", "tool-use"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [
     "jsonschema>=4.21",  # tool-arg validation (design §6.2)
     "httpx>=0.27",       # provider HTTP calls (M1, design §5)
-    "windows-curses>=2.4.2; sys_platform == 'win32'",
+    "windows-curses>=2.4.2; sys_platform == 'win32'",  # TUI on Windows
 ]
+
+[project.urls]
+Homepage = "https://github.com/sebbyrule/agentkernal"
+Repository = "https://github.com/sebbyrule/agentkernal"
+Issues = "https://github.com/sebbyrule/agentkernal/issues"
 
 [project.scripts]
 agentkernel = "agentkernel.cli:main"
@@ -16,6 +38,7 @@ agentkernel = "agentkernel.cli:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
 ]
 
 [build-system]
@@ -24,6 +47,23 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentkernel"]
+
+# Ship the scaffolding templates inside the package so `agentkernel new` works
+# after a global install (not just from a checkout).
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "agentkernel/templates"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "agentkernel",
+    "templates",
+    "examples",
+    "README.md",
+    "AGENT.md",
+    "agent-kernel-design.md",
+    "agentkernel.toml.example",
+    "LICENSE",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

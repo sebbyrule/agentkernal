@@ -23,10 +23,21 @@ Most "agent frameworks" hide the one thing that actually matters — the loop �
 
 ## Installation
 
-Requires **Python 3.11+** and [uv](https://docs.astral.sh/uv/).
+Requires **Python 3.11+**.
+
+**As a CLI tool** (recommended for everyday use — puts `agentkernel` on your `PATH`):
 
 ```bash
-uv sync --extra dev      # install runtime + dev (pytest) dependencies
+uv tool install agentkernel      # or: pipx install agentkernel  /  pip install agentkernel
+agentkernel init                 # scaffold ./agentkernel.toml (or: agentkernel init --global)
+agentkernel run "summarize the failing tests"
+```
+
+**For development** (working on agentkernel itself), with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync --extra dev      # install runtime + dev (pytest, ruff) dependencies
+uv run pytest
 ```
 
 API keys are read **only** from the environment — never from config files or traces:
