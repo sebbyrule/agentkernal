@@ -166,7 +166,10 @@ def test_run_eval_filters_cases_and_writes_report(tmp_path, monkeypatch):
         "build_runtime",
         lambda config, **kw: (_FakeAgent(), _FakeTelemetry(), []),
     )
-    monkeypatch.setattr(cli_mod, "make_provider", lambda config, **kw: judge_provider)
+    # The eval judge is built via the role router; patch where it resolves.
+    import agentkernel.roles as roles_mod
+
+    monkeypatch.setattr(roles_mod, "make_provider", lambda config, **kw: judge_provider)
     class _FakeSandbox:
         def close(self):
             pass

@@ -20,7 +20,6 @@ import fnmatch
 import json
 import sys
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 
 from agentkernel.agent import Agent
@@ -44,6 +43,7 @@ from agentkernel.paths import agent_home, global_config_path
 from agentkernel.profiles import Profile, load_profile
 from agentkernel.progress import ProgressTelemetry
 from agentkernel.providers import ProviderError, make_provider
+from agentkernel.roles import provider_for_role, provider_with_model
 from agentkernel.semantic_memory import SemanticSqliteNoteStore
 from agentkernel.skills import DirectorySkillStore, make_skill_tool
 from agentkernel.subagent import make_spawn_tool
@@ -213,9 +213,7 @@ def build_runtime(
     budget_for_context = provider.context_window - config.output_reserve
     summarizer = None
     if config.summarizer_model:
-        summarizer = ModelSummarizer(
-            make_provider(replace(config, model=config.summarizer_model))
-        )
+        summarizer = ModelSummarizer(provider_for_role(config, "summarize"))
     context = ContextManager(
         budget=budget_for_context,
         keep_recent_turns=config.keep_recent_turns,
@@ -226,8 +224,7 @@ def build_runtime(
     if config.approval_policy == "smart":
         from agentkernel.approval.risk import RiskJudge
 
-        judge_model = config.approval_judge_model or config.summarizer_model or config.model
-        risk_judge = RiskJudge(make_provider(replace(config, model=judge_model)))
+        risk_judge = RiskJudge(provider_for_role(config, "classify"))
     approver = CliApprover(
         config.approval_policy,
         allowlist=config.approval_allowlist,
@@ -929,8 +926,7 @@ def run_memory(
     from agentkernel.curation import MemoryCurator
 
     notes = _make_configured_note_store(config)
-    curator_model = config.memory_curator_model or config.summarizer_model or config.model
-    provider = make_provider(replace(config, model=curator_model))
+    provider = provider_for_role(config, "curate")
     curator = MemoryCurator(notes, provider)
 
     if action == "consolidate":
@@ -1052,11 +1048,11 @@ def run_eval(
             context_source=base_agent.context_source,
         )
 
+    # An explicit --judge-model (or config.judge_model) overrides; otherwise reuse
+    # the agent's own provider rather than spinning up a duplicate.
     judge_model = judge_model or config.judge_model
     judge = (
-        make_provider(replace(config, model=judge_model))
-        if judge_model
-        else base_agent.provider
+        provider_with_model(config, judge_model) if judge_model else base_agent.provider
     )
     evaluator = Evaluator(
         agent_factory, judge,
