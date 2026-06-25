@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format loosely
 follows [Keep a Changelog](https://keepachangelog.com/), and the project aims to
 follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-06-25
+
+Additive release: new capabilities, no breaking changes. Every feature is opt-in
+or defaults to the previous behavior.
+
+### Added
+- **Multimodality**: image input in canonical messages (`Message.images` /
+  `ImageContent`), translated by each adapter and gated by
+  `Provider.supports_images`. Attach via `agentkernel run --image PATH_OR_URL`
+  (repeatable) or the REPL `/image` command. Text-only providers drop images
+  rather than erroring.
+- **More providers**: named OpenAI-compatible adapters for **OpenRouter**,
+  **DeepSeek**, and **Gemini** (`provider = "openrouter" | "deepseek" |
+  "gemini"`), each with a default endpoint, key env var, and capability.
+- **Memory recall tuning**: opt-in recency/importance-weighted recall
+  (`memory_recency_weight` / `memory_importance_weight` / `memory_half_life_days`)
+  and per-project **namespaces** via `memory_scope` (recall returns global +
+  active scope). `remember(global=true)` pins a universal fact under a scope.
+- **Shareable skill bundles**: `agentkernel skill pack|install|list` package a
+  skill (`SKILL.md` + resources) as a portable `.skill.zip`.
+- **Shell completions**: `agentkernel completion bash|zsh|fish`.
+
+### Changed
+- Auxiliary models (compaction, risk classifier, curation, eval judge) now
+  resolve through a single named-role router (`agentkernel/roles.py`); the
+  per-role config fields are unchanged.
+- Memory consolidation is scope-aware: it consolidates each namespace
+  independently and preserves each note's scope.
+
 ## [0.1.0] — first public release
 
 First packaged release: `agentkernel` is installable from PyPI and runnable from

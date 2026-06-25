@@ -45,6 +45,9 @@ API keys are read **only** from the environment — never from config files or t
 ```bash
 export ANTHROPIC_API_KEY=***     # for provider = "anthropic"
 export OPENAI_API_KEY=***        # for provider = "openai" / embeddings
+export OPENROUTER_API_KEY=***    # for provider = "openrouter"
+export DEEPSEEK_API_KEY=***      # for provider = "deepseek"
+export GEMINI_API_KEY=***        # for provider = "gemini"
 # local/OpenAI-compatible endpoints (Ollama, vLLM) usually need no key
 # Credential pool: give several keys and the provider rotates on rate limits —
 # comma-separate (ANTHROPIC_API_KEY="k1,k2") or number them (ANTHROPIC_API_KEY_1, _2).
