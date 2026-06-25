@@ -54,7 +54,8 @@ from agentkernel.types import ImageContent
 
 _BANNER = (
     "agentkernel REPL - type your message and press enter. Commands: /exit, "
-    "/clear, /system, /profile, /skills, /skill, /tools, /trace, /cost, /memory, /improve."
+    "/clear, /image, /system, /profile, /skills, /skill, /tools, /trace, /cost, "
+    "/memory, /improve."
 )
 _PROMPT = "> "
 _EXIT_WORDS = {"exit", "quit", ":q"}
@@ -286,6 +287,7 @@ def _handle_slash(
     profile: Profile,
     config: Config,
     output_fn: Callable[[str], None],
+    staged_images: list[ImageContent] | None = None,
 ) -> bool:
     """Process a REPL slash command. Returns True if the line was handled."""
     parts = line.split(None, 1)
@@ -298,6 +300,33 @@ def _handle_slash(
     if cmd == "clear":
         agent.context.clear()
         output_fn("[context cleared]")
+        return True
+
+    if cmd == "image":
+        target = arg.strip()
+        if not target or target == "list":
+            count = len(staged_images or [])
+            output_fn(
+                f"[{count} image(s) staged for the next message]"
+                if count
+                else "[no images staged] usage: /image <path-or-url> | /image clear"
+            )
+            return True
+        if target == "clear":
+            if staged_images is not None:
+                staged_images.clear()
+            output_fn("[staged images cleared]")
+            return True
+        try:
+            loaded = _load_images([target]) or []
+        except (OSError, ValueError) as exc:
+            output_fn(f"[image error] {exc}")
+            return True
+        if staged_images is not None:
+            staged_images.extend(loaded)
+        supported = getattr(agent._provider_for(profile), "supports_images", False)
+        warn = "" if supported else f"  (note: provider {config.provider!r} can't accept images)"
+        output_fn(f"[staged image: {target}]{warn}")
         return True
 
     if cmd == "system":
@@ -456,6 +485,7 @@ def repl(
     streaming = stream_fn is not None and getattr(cfg, "stream", True)
     output_fn(_BANNER)
     profile = Profile(name="default")
+    staged_images: list[ImageContent] = []  # attached to the next message, then cleared
     while True:
         try:
             line = input_fn(_PROMPT).strip()
@@ -467,7 +497,7 @@ def repl(
         if line.lower() in _EXIT_WORDS:
             break
         if line.startswith("/"):
-            if not _handle_slash(line, agent, profile, cfg, output_fn):
+            if not _handle_slash(line, agent, profile, cfg, output_fn, staged_images):
                 break
             continue
         streamed = {"any": False}
@@ -476,13 +506,18 @@ def repl(
             _s["any"] = True
             stream_fn(text)  # type: ignore[misc]
 
+        images = list(staged_images) if staged_images else None
         try:
             answer = agent.run(
-                line, profile=profile, on_text=on_text if streaming else None
+                line,
+                profile=profile,
+                on_text=on_text if streaming else None,
+                images=images,
             )
         except ProviderError as exc:
             output_fn(f"[provider error] {exc}")
             continue
+        staged_images.clear()  # consumed by the message just sent
         if streaming and streamed["any"]:
             stream_fn("\n")  # type: ignore[misc]
         else:

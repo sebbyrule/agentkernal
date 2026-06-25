@@ -116,13 +116,14 @@ status per turn, and writes a per-session JSONL trace. It supports slash command
 $ uv run agentkernel
 [session trace: .agentkernel/traces/<session-id>.jsonl]
 agentkernel REPL - type your message and press enter. Commands: /exit, /clear,
-/system, /profile, /skills, /skill, /tools, /trace, /cost, /memory, /improve.
+/image, /system, /profile, /skills, /skill, /tools, /trace, /cost, /memory, /improve.
 > summarize the files in this directory
 ```
 
 | Command | Effect |
 |---|---|
 | `/clear` | reset the conversation context |
+| `/image <path-or-url>` | attach an image to the next message (`/image clear` to discard) |
 | `/system [text]` | set (or clear) the system prompt for following turns |
 | `/profile [name]` | show, or load, a profile from `profile_dir` |
 | `/skills` | list discovered skills (`*` = active) |

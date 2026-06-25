@@ -137,6 +137,25 @@ def test_cli_load_images_handles_paths_and_urls(tmp_path):
     assert images[1].kind == "url" and images[1].data == "https://example.com/cat.jpg"
 
 
+def test_images_survive_session_memory_round_trip(tmp_path):
+    from agentkernel.memory import FileMemoryStore, SqliteMemoryStore
+
+    stores = [
+        FileMemoryStore(tmp_path / "file"),
+        SqliteMemoryStore(tmp_path / "mem.db"),
+    ]
+    for store in stores:
+        msg = Message(
+            role="user",
+            content="look at this",
+            images=[ImageContent(data="QUJD", media_type="image/png")],
+        )
+        store.save("sess", [msg])
+        loaded = store.load("sess")
+        assert loaded[0].images == [ImageContent(data="QUJD", media_type="image/png")]
+        assert loaded[0].content == "look at this"
+
+
 def test_estimate_tokens_charges_for_images():
     text_only = Message(role="user", content="hello there")
     with_image = Message(

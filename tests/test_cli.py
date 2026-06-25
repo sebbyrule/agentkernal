@@ -81,6 +81,62 @@ def test_run_once_prints_answer(agent_builder):
     assert "hello!" in out
 
 
+def test_repl_image_stages_and_attaches(agent_builder, tmp_path):
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"\x89PNG fake bytes")
+    provider = FakeProvider([text_response("I see it")])
+    agent = agent_builder(provider)
+    out: list[str] = []
+    repl(
+        agent,
+        input_fn=_ScriptedInput([f"/image {img}", "describe", "exit"]),
+        output_fn=out.append,
+    )
+    assert any("staged image" in line for line in out)
+    user_msgs = [m for m in provider.calls[-1] if m.role == "user"]
+    assert any(m.images for m in user_msgs)  # the image rode the next message
+
+
+def test_repl_image_clear_discards_staged(agent_builder, tmp_path):
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"x")
+    provider = FakeProvider([text_response("ok")])
+    agent = agent_builder(provider)
+    out: list[str] = []
+    repl(
+        agent,
+        input_fn=_ScriptedInput([f"/image {img}", "/image clear", "hi", "exit"]),
+        output_fn=out.append,
+    )
+    assert any("cleared" in line for line in out)
+    user_msgs = [m for m in provider.calls[-1] if m.role == "user"]
+    assert not any(m.images for m in user_msgs)
+
+
+def test_repl_image_is_consumed_once(agent_builder, tmp_path):
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"x")
+    provider = FakeProvider([text_response("first"), text_response("second")])
+    agent = agent_builder(provider)
+    repl(
+        agent,
+        input_fn=_ScriptedInput([f"/image {img}", "one", "two", "exit"]),
+        output_fn=lambda _l: None,
+    )
+    # The newest user turn carried the image first time, but not the second —
+    # the staged image is consumed once, even though it lingers in history.
+    assert [m for m in provider.calls[0] if m.role == "user"][-1].images
+    assert not [m for m in provider.calls[-1] if m.role == "user"][-1].images
+
+
+def test_repl_image_missing_file_reports_error(agent_builder):
+    provider = FakeProvider([])
+    agent = agent_builder(provider)
+    out: list[str] = []
+    repl(agent, input_fn=_ScriptedInput(["/image /no/such.png", "/exit"]), output_fn=out.append)
+    assert any("image error" in line for line in out)
+
+
 def test_repl_slash_exit(agent_builder):
     provider = FakeProvider([])
     agent = agent_builder(provider)
