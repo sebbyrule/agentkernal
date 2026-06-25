@@ -180,6 +180,10 @@ def accumulate_stream(
                     on_text(text)
             elif delta.get("type") == "input_json_delta":
                 block["json"] += delta.get("partial_json", "")
+            elif delta.get("type") == "thinking_delta":
+                # Extended thinking: shown live but not part of the answer.
+                if on_text is not None:
+                    on_text(delta.get("thinking", ""))
         elif etype == "message_delta":
             stop_reason = event.get("delta", {}).get("stop_reason", stop_reason)
             usage.update(event.get("usage", {}) or {})
@@ -214,6 +218,14 @@ class AnthropicProvider:
             CredentialPool([api_key]) if api_key
             else CredentialPool.from_env("ANTHROPIC_API_KEY")
         )
+
+    def with_model(self, model: str) -> AnthropicProvider:
+        """A copy of this provider bound to a different model (shares credentials)."""
+        clone = AnthropicProvider.__new__(AnthropicProvider)
+        clone.model = model
+        clone.context_window = self.context_window
+        clone._pool = self._pool
+        return clone
 
     def complete(
         self,

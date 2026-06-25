@@ -93,6 +93,7 @@ class Agent:
         tools = self._tools_for(profile)
         system = self._system_for(profile)
         reasoning = getattr(profile, "reasoning", None)
+        provider = self._provider_for(profile)  # honor profile.model_override
 
         if self.budget is not None:
             self.budget.reset()
@@ -100,7 +101,7 @@ class Agent:
         for iteration in range(self.config.max_iterations):
             messages = self.context.window()  # compacted to budget in M2
 
-            resp = self.provider.complete(
+            resp = provider.complete(
                 messages,
                 tools,
                 max_tokens=self.config.max_output_tokens,
@@ -263,6 +264,20 @@ class Agent:
             allowed = set(tool_filter)
             specs = [s for s in specs if s.name in allowed]
         return specs
+
+    def _provider_for(self, profile: Any | None):
+        """Honor ``profile.model_override`` for this run (design §13, Phase 5).
+
+        Returns a copy of the provider bound to the override model when set and
+        the provider supports ``with_model``; otherwise the injected provider."""
+        override = getattr(profile, "model_override", None)
+        if (
+            override
+            and override != getattr(self.provider, "model", None)
+            and hasattr(self.provider, "with_model")
+        ):
+            return self.provider.with_model(override)
+        return self.provider
 
     def _system_for(self, profile: Any | None) -> str | None:
         """Combine profile system prompt and active skill additions.

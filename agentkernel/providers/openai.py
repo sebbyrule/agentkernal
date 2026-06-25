@@ -133,6 +133,11 @@ def accumulate_stream(
                 content.append(text)
                 if on_text is not None:
                     on_text(text)
+            # Reasoning models (e.g. via LM Studio) stream their thinking on a
+            # separate channel — show it live, but it is not part of the answer.
+            reasoning = delta.get("reasoning_content")
+            if reasoning and on_text is not None:
+                on_text(reasoning)
             for tc in delta.get("tool_calls") or []:
                 slot = tool_calls.setdefault(
                     tc.get("index", 0), {"id": "", "name": "", "arguments": ""}
@@ -181,6 +186,21 @@ class OpenAIProvider:
         self._pool = (
             CredentialPool([api_key]) if api_key else CredentialPool.from_env(env_key)
         )
+
+    def with_model(self, model: str) -> OpenAIProvider:
+        """A copy of this provider bound to a different model (shares credentials).
+
+        Used to honor a profile's ``model_override`` for one run without
+        rebuilding the credential pool or re-reading the environment."""
+        clone = OpenAIProvider.__new__(OpenAIProvider)
+        clone.name = self.name
+        clone.model = model
+        clone.context_window = self.context_window
+        clone._base_url = self._base_url
+        clone._require_key = self._require_key
+        clone._send_reasoning = self._send_reasoning
+        clone._pool = self._pool
+        return clone
 
     def complete(
         self,

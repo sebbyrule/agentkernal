@@ -73,3 +73,32 @@ def test_loop_forwards_streamed_text_to_on_text(agent_builder):
     answer = agent.run("hi", on_text=chunks.append)
     assert answer == "streamed answer"
     assert "".join(chunks) == "streamed answer"
+
+
+def test_openai_streams_reasoning_but_excludes_it_from_answer():
+    events = [
+        {"choices": [{"delta": {"reasoning_content": "thinking... "}}]},
+        {"choices": [{"delta": {"content": "the answer"}}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+    ]
+    shown: list[str] = []
+    resp = openai.parse_response(openai.accumulate_stream(events, shown.append))
+    assert "".join(shown) == "thinking... the answer"  # reasoning shown live
+    assert resp.message.content == "the answer"  # but not part of the answer
+
+
+def test_anthropic_streams_thinking_but_excludes_it_from_answer():
+    events = [
+        {"type": "content_block_start", "index": 0,
+         "content_block": {"type": "thinking"}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "thinking_delta", "thinking": "hmm "}},
+        {"type": "content_block_start", "index": 1,
+         "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 1,
+         "delta": {"type": "text_delta", "text": "answer"}},
+    ]
+    shown: list[str] = []
+    resp = anthropic.parse_response(anthropic.accumulate_stream(events, shown.append))
+    assert "".join(shown) == "hmm answer"
+    assert resp.message.content == "answer"
