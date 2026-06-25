@@ -121,6 +121,23 @@ def test_sqlite_migrates_legacy_notebook_without_scope_column(tmp_path):
     assert legacy.text in {n.text for n in store.search("legacy")}
 
 
+def test_remember_global_flag_writes_universal_scope(tmp_path):
+    from agentkernel.memory import make_memory_tools
+
+    notes = JsonlNoteStore(tmp_path / "n.jsonl", scope="proj")
+    tools = {t.name: t for t in make_memory_tools(notes)}
+    remember = tools["remember"].handler
+
+    result = remember({"text": "user prefers tabs", "global": True})
+    assert "global" in result.content.lower()
+    remember({"text": "this project uses redis"})  # inherits scope "proj"
+
+    # From a different project, the global fact is recallable but the scoped one isn't.
+    other = JsonlNoteStore(tmp_path / "n.jsonl", scope="other")
+    assert "user prefers tabs" in {n.text for n in other.search("user prefers")}
+    assert "this project uses redis" not in {n.text for n in other.search("redis")}
+
+
 def test_make_note_store_passes_scope_through(tmp_path):
     store = make_note_store(tmp_path / "n.db", scope="proj")
     note = store.add("hello")

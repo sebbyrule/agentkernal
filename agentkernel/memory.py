@@ -762,9 +762,14 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
 
     def remember(arguments: dict) -> ToolResult:
         text = arguments["text"]
-        note = notes.add(text, tags=arguments.get("tags"))
+        # `global` forces the empty (universal) scope so the fact is recalled from
+        # every namespace, even when this run is scoped to one project; otherwise
+        # the note inherits the store's active scope.
+        scope = "" if arguments.get("global") else None
+        note = notes.add(text, tags=arguments.get("tags"), scope=scope)
         suffix = f" [tags: {', '.join(note.tags)}]" if note.tags else ""
-        return ToolResult("", f"Remembered: {note.text}{suffix}")
+        scope_note = " (global)" if note.scope == "" and arguments.get("global") else ""
+        return ToolResult("", f"Remembered{scope_note}: {note.text}{suffix}")
 
     def recall(arguments: dict) -> ToolResult:
         query = arguments.get("query", "") or ""
@@ -820,7 +825,9 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
             description=(
                 "Save a durable fact to long-term memory (persists across "
                 "sessions). Use for stable user preferences, project facts, and "
-                "decisions worth recalling later — not transient chatter."
+                "decisions worth recalling later — not transient chatter. Set "
+                "global=true for a fact true everywhere (e.g. a user preference) "
+                "so it is recalled from every project, not just this one."
             ),
             parameters={
                 "type": "object",
@@ -830,6 +837,13 @@ def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> lis
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Optional keywords to aid later recall.",
+                    },
+                    "global": {
+                        "type": "boolean",
+                        "description": (
+                            "Save as a universal fact recalled from every project "
+                            "scope (default: inherit the current scope)."
+                        ),
                     },
                 },
                 "required": ["text"],
