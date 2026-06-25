@@ -16,7 +16,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from agentkernel.embeddings import EmbeddingProvider, cosine_similarity
-from agentkernel.memory import MemoryNote, RecallWeighting, SqliteNoteStore
+from agentkernel.memory import (
+    MemoryNote,
+    RecallWeighting,
+    SqliteNoteStore,
+    _scope_visible,
+)
 from agentkernel.semantic_index import LSHIndex
 
 
@@ -35,12 +40,13 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         embedding_provider: EmbeddingProvider,
         lsh_bits: int | None = None,
         weighting: RecallWeighting | None = None,
+        scope: str | None = None,
     ) -> None:
         self._embedding_provider = embedding_provider
         self._lsh_bits = lsh_bits
         self._lsh_index: LSHIndex | None = None
         # Parent creates the notes table and optional FTS5 index.
-        super().__init__(path, weighting=weighting)
+        super().__init__(path, weighting=weighting, scope=scope)
         self._ensure_embedding_schema()
 
     def _ensure_embedding_schema(self) -> None:
@@ -134,6 +140,7 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
 
         query_vec = self._embedding_provider.embed([query])[0]
         candidates = self._candidates(query_vec, limit=limit)
+        candidates = [n for n in candidates if _scope_visible(n.scope, self._scope)]
         if not candidates:
             return []
 

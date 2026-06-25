@@ -62,6 +62,7 @@ class Config:
     memory_auto_context_limit: int = 3  # max notes per auto-recall
     memory_store_budget: int | None = None  # max tokens to persist per session
     memory_curator_model: str | None = None  # cheap model for memory extract/consolidate
+    memory_scope: str | None = None  # recall namespace: "auto" (project dir) | name | None=off
     memory_recency_weight: float = 0.0  # boost recall of recently-created notes
     memory_importance_weight: float = 0.0  # boost recall of often-recalled notes
     memory_half_life_days: float = 30.0  # age (days) for a note's recency score to halve

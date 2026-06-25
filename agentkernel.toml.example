@@ -60,6 +60,9 @@ log_dir = ".agentkernel/traces"
 # memory_auto_context = false       # auto-inject recalled notes into user message
 # memory_auto_context_limit = 3     # max notes per auto-recall
 # memory_store_budget = 4000        # summarize older turns before persisting
+# memory_scope = "auto"             # recall namespace: "auto" (project dir name) | a name | omit=off
+#                                   #   recall returns global notes + the active namespace;
+#                                   #   new notes are stamped with it
 #                                   # Recency/importance-weighted recall (opt-in; 0 = off):
 # memory_recency_weight = 0.0       # boost notes by how recently they were created
 # memory_importance_weight = 0.0    # boost notes by how often they have been recalled

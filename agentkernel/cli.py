@@ -70,6 +70,7 @@ def _make_configured_note_store(config: Config) -> NoteStore:
         importance_weight=config.memory_importance_weight,
         half_life_days=config.memory_half_life_days,
     )
+    scope = _resolve_memory_scope(config)
     if config.semantic_search:
         try:
             emb_provider = OpenAIEmbeddingProvider.from_config(config)
@@ -81,10 +82,25 @@ def _make_configured_note_store(config: Config) -> NoteStore:
                 embedding_provider=emb_provider,
                 lsh_bits=config.semantic_search_lsh_bits,
                 weighting=weighting,
+                scope=scope,
             )
         except EmbeddingError as exc:
             print(f"Warning: semantic search disabled: {exc}", file=sys.stderr)
-    return make_note_store(config.memory_notes_path, weighting=weighting)
+    return make_note_store(config.memory_notes_path, weighting=weighting, scope=scope)
+
+
+def _resolve_memory_scope(config: Config) -> str | None:
+    """Resolve ``config.memory_scope`` to the active namespace (or ``None`` = off).
+
+    ``"auto"`` derives a stable name from the project directory; an empty value
+    disables scoping; any other string is used literally.
+    """
+    raw = (config.memory_scope or "").strip()
+    if not raw:
+        return None
+    if raw.lower() == "auto":
+        return Path(config.working_dir or ".").resolve().name or None
+    return raw
 
 
 def build_runtime(

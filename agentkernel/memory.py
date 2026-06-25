@@ -404,6 +404,7 @@ class MemoryNote:
     note_id: int = 0
     accessed: str = ""  # ISO timestamp of last recall/update (P1 metadata)
     access_count: int = 0  # how many times the note has been recalled (P1)
+    scope: str = ""  # namespace; "" = global, recallable from any scope
 
     def to_dict(self) -> dict:
         return {
@@ -413,6 +414,7 @@ class MemoryNote:
             "note_id": self.note_id,
             "accessed": self.accessed,
             "access_count": self.access_count,
+            "scope": self.scope,
         }
 
     @classmethod
@@ -424,6 +426,7 @@ class MemoryNote:
             note_id=data.get("note_id", 0),
             accessed=data.get("accessed", ""),
             access_count=data.get("access_count", 0),
+            scope=data.get("scope", ""),
         )
 
 
@@ -505,6 +508,16 @@ class RecallWeighting:
         return [note for _score, note in weighted[:limit]]
 
 
+def _scope_visible(note_scope: str, active: str | None) -> bool:
+    """Whether a note in ``note_scope`` is visible under the ``active`` namespace.
+
+    ``active is None`` means scoping is disabled — every note is visible. A
+    global note (``scope == ""``) is always visible; otherwise the note's scope
+    must equal the active namespace.
+    """
+    return active is None or note_scope == "" or note_scope == active
+
+
 class JsonlNoteStore:
     """Append-only notebook of facts with keyword + recency recall.
 
@@ -516,9 +529,16 @@ class JsonlNoteStore:
     from the REPL or by the model via ordinary tools.
     """
 
-    def __init__(self, path: str | Path, *, weighting: RecallWeighting | None = None) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        weighting: RecallWeighting | None = None,
+        scope: str | None = None,
+    ) -> None:
         self.path = Path(path)
         self._weighting = weighting or RecallWeighting()
+        self._scope = scope  # None = scoping disabled
         self._notes: list[MemoryNote] = []
         self._next_id: int = 1
         if self.path.is_file():
@@ -564,6 +584,7 @@ class JsonlNoteStore:
             tags=[str(t) for t in (tags or [])],
             created=datetime.now(UTC).isoformat(),
             note_id=note_id if note_id is not None else self._next_id,
+            scope=self._scope or "",
         )
         if note.note_id >= self._next_id:
             self._next_id = note.note_id + 1
@@ -575,7 +596,8 @@ class JsonlNoteStore:
         return list(self._notes)
 
     def recent(self, limit: int = 5) -> list[MemoryNote]:
-        results = self._notes[-limit:][::-1]  # newest first
+        visible = [n for n in self._notes if _scope_visible(n.scope, self._scope)]
+        results = visible[-limit:][::-1]  # newest first
         for note in results:
             self._touch(note)
         return results
@@ -612,7 +634,7 @@ class JsonlNoteStore:
         query_norm = math.sqrt(sum(v * v for v in query_vec.values())) or 1.0
         scored: list[tuple[float, int, MemoryNote]] = []
         for index, (note, vec) in enumerate(zip(self._notes, vectors, strict=True)):
-            if not vec:
+            if not vec or not _scope_visible(note.scope, self._scope):
                 continue
             dot = sum(query_vec.get(t, 0) * vec.get(t, 0) for t in terms)
             note_norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0
@@ -703,18 +725,22 @@ MemoryNotes = JsonlNoteStore
 
 
 def make_note_store(
-    path: str | Path, *, weighting: RecallWeighting | None = None
+    path: str | Path,
+    *,
+    weighting: RecallWeighting | None = None,
+    scope: str | None = None,
 ) -> NoteStore:
     """Select a note store backend based on the path extension.
 
     Paths ending in ``.db``/``.sqlite``/``.sqlite3`` become a SQLite-backed
     store; anything else uses the original JSONL notebook. ``weighting`` tunes
-    recency/importance-aware recall (inactive by default).
+    recency/importance-aware recall (inactive by default); ``scope`` restricts
+    recall to the global + named namespace (``None`` disables scoping).
     """
     p = Path(path)
     if p.suffix.lower() in (".db", ".sqlite", ".sqlite3"):
-        return SqliteNoteStore(p, weighting=weighting)
-    return JsonlNoteStore(p, weighting=weighting)
+        return SqliteNoteStore(p, weighting=weighting, scope=scope)
+    return JsonlNoteStore(p, weighting=weighting, scope=scope)
 
 
 def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> list:
@@ -1021,13 +1047,30 @@ class SqliteNoteStore:
     builds without FTS5 fall back to substring search.
     """
 
-    def __init__(self, path: str | Path, *, weighting: RecallWeighting | None = None) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        weighting: RecallWeighting | None = None,
+        scope: str | None = None,
+    ) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._weighting = weighting or RecallWeighting()
+        self._scope = scope  # None = scoping disabled
         self._conn: sqlite3.Connection | None = None
         self._fts_enabled: bool | None = None
         self._ensure_schema()
+
+    def _scope_clause(self) -> tuple[str, tuple]:
+        """SQL fragment + params restricting rows to the visible namespace.
+
+        Returns ``("", ())`` when scoping is disabled. Callers splice the
+        fragment after an existing ``WHERE`` with ``AND``.
+        """
+        if self._scope is None:
+            return "", ()
+        return "(scope = '' OR scope = ?)", (self._scope,)
 
     def _connection(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -1045,10 +1088,15 @@ class SqliteNoteStore:
                 tags_json TEXT NOT NULL DEFAULT '[]',
                 created TEXT NOT NULL,
                 accessed TEXT,
-                access_count INTEGER NOT NULL DEFAULT 0
+                access_count INTEGER NOT NULL DEFAULT 0,
+                scope TEXT NOT NULL DEFAULT ''
             );
             """
         )
+        # Migrate notebooks created before the scope column existed.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(notes)").fetchall()}
+        if "scope" not in cols:
+            conn.execute("ALTER TABLE notes ADD COLUMN scope TEXT NOT NULL DEFAULT ''")
         try:
             conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(text)"
@@ -1066,6 +1114,7 @@ class SqliteNoteStore:
             note_id=row["note_id"],
             accessed=row["accessed"] or "",
             access_count=row["access_count"],
+            scope=row["scope"],
         )
 
     def add(self, text: str, *, tags: Sequence[str] | None = None) -> MemoryNote:
@@ -1074,8 +1123,8 @@ class SqliteNoteStore:
         with conn:
             cursor = conn.execute(
                 """
-                INSERT INTO notes (text, tags_json, created, accessed, access_count)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO notes (text, tags_json, created, accessed, access_count, scope)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     text.strip(),
@@ -1083,6 +1132,7 @@ class SqliteNoteStore:
                     created,
                     "",
                     0,
+                    self._scope or "",
                 ),
             )
             note_id = cursor.lastrowid or 0
@@ -1098,6 +1148,7 @@ class SqliteNoteStore:
             note_id=note_id,
             accessed="",
             access_count=0,
+            scope=self._scope or "",
         )
         return note
 
@@ -1108,9 +1159,11 @@ class SqliteNoteStore:
         return [self._row_to_note(r) for r in rows]
 
     def recent(self, limit: int = 5) -> list[MemoryNote]:
+        clause, params = self._scope_clause()
+        where = f"WHERE {clause} " if clause else ""
         rows = self._connection().execute(
-            "SELECT * FROM notes ORDER BY note_id DESC LIMIT ?",
-            (limit,),
+            f"SELECT * FROM notes {where}ORDER BY note_id DESC LIMIT ?",
+            (*params, limit),
         ).fetchall()
         notes = [self._row_to_note(r) for r in rows]
         for note in notes:
@@ -1122,32 +1175,35 @@ class SqliteNoteStore:
         if not query:
             return self.recent(limit)
         conn = self._connection()
+        clause, sparams = self._scope_clause()
         rows: list[sqlite3.Row] = []
         if self._fts_enabled:
+            scope_and = f"AND {clause.replace('scope', 'n.scope')} " if clause else ""
             try:
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT n.*
                     FROM notes_fts f
                     JOIN notes n ON f.rowid = n.note_id
-                    WHERE f MATCH ?
+                    WHERE f MATCH ? {scope_and}
                     ORDER BY rank
                     LIMIT ?
                     """,
-                    (query, limit),
+                    (query, *sparams, limit),
                 ).fetchall()
             except sqlite3.OperationalError:
                 rows = []
         if not rows:
             like = f"%{query}%"
+            scope_and = f"AND {clause} " if clause else ""
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM notes
-                WHERE text LIKE ?
+                WHERE text LIKE ? {scope_and}
                 ORDER BY note_id DESC
                 LIMIT ?
                 """,
-                (like, limit),
+                (like, *sparams, limit),
             ).fetchall()
         notes = [self._row_to_note(r) for r in rows]
         for note in notes:
