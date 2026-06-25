@@ -427,6 +427,84 @@ class MemoryNote:
         )
 
 
+@dataclass(frozen=True)
+class RecallWeighting:
+    """Recency- and importance-aware re-ranking of recalled notes.
+
+    Relevance stays the gate: each note's base relevance score is multiplied by
+    ``1 + recency_weight*recency + importance_weight*importance`` and the set is
+    re-sorted. A note the query does not match (base 0) therefore never
+    surfaces, but among relevant notes a newer or more-often-recalled one is
+    nudged ahead. ``recency`` decays exponentially with the note's age
+    (``half_life_days`` per halving, measured from its ``created`` time);
+    ``importance`` rises with the recall ``access_count`` that the stores
+    already track but never used for ranking.
+
+    Recency is measured from ``created`` rather than last access on purpose:
+    ``search`` touches every candidate (updating ``accessed`` to *now*) before
+    ranking, so an access-based recency would read as fresh for all of them.
+    "Often recalled" is captured by the separate importance term instead.
+
+    With both weights ``0`` (the default) the weighting is *inactive*: ``rerank``
+    returns the notes in exactly the order the caller supplied, so existing
+    keyword/TF-IDF/semantic ordering is unchanged unless a user opts in.
+    """
+
+    recency_weight: float = 0.0
+    importance_weight: float = 0.0
+    half_life_days: float = 30.0
+
+    @property
+    def active(self) -> bool:
+        return bool(self.recency_weight or self.importance_weight)
+
+    def _recency(self, note: MemoryNote, now: datetime) -> float:
+        ts = note.created
+        if not ts or self.half_life_days <= 0:
+            return 0.0
+        try:
+            when = datetime.fromisoformat(ts)
+        except ValueError:
+            return 0.0
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        age_days = max(0.0, (now - when).total_seconds() / 86400.0)
+        return 0.5 ** (age_days / self.half_life_days)
+
+    @staticmethod
+    def _importance(note: MemoryNote) -> float:
+        # Diminishing returns: 0 recalls -> 0.0, many recalls -> approaches 1.0.
+        return 1.0 - 1.0 / (1.0 + max(0, note.access_count))
+
+    def rerank(
+        self,
+        scored: Sequence[tuple[float, MemoryNote]],
+        *,
+        limit: int,
+        now: datetime | None = None,
+    ) -> list[MemoryNote]:
+        """Re-order ``(base_score, note)`` pairs and return the top ``limit`` notes.
+
+        ``scored`` must already be in the caller's preferred order so the
+        inactive path is a faithful identity. The active path re-sorts by the
+        weighted score (stable, so the supplied order breaks ties).
+        """
+        pairs = list(scored)
+        if not self.active:
+            return [note for _base, note in pairs[:limit]]
+        now = now or datetime.now(UTC)
+        weighted: list[tuple[float, MemoryNote]] = []
+        for base, note in pairs:
+            multiplier = (
+                1.0
+                + self.recency_weight * self._recency(note, now)
+                + self.importance_weight * self._importance(note)
+            )
+            weighted.append((base * multiplier, note))
+        weighted.sort(key=lambda item: item[0], reverse=True)
+        return [note for _score, note in weighted[:limit]]
+
+
 class JsonlNoteStore:
     """Append-only notebook of facts with keyword + recency recall.
 
@@ -438,8 +516,9 @@ class JsonlNoteStore:
     from the REPL or by the model via ordinary tools.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, weighting: RecallWeighting | None = None) -> None:
         self.path = Path(path)
+        self._weighting = weighting or RecallWeighting()
         self._notes: list[MemoryNote] = []
         self._next_id: int = 1
         if self.path.is_file():
@@ -542,7 +621,8 @@ class JsonlNoteStore:
                 self._touch(note)
                 scored.append((similarity, index, note))
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        return [note for _score, _index, note in scored[:limit]]
+        pairs = [(score, note) for score, _index, note in scored]
+        return self._weighting.rerank(pairs, limit=limit)
 
     def deduplicate(self) -> int:
         """Merge notes with identical text, combining tags and keeping the oldest id.
@@ -622,16 +702,19 @@ class JsonlNoteStore:
 MemoryNotes = JsonlNoteStore
 
 
-def make_note_store(path: str | Path) -> NoteStore:
+def make_note_store(
+    path: str | Path, *, weighting: RecallWeighting | None = None
+) -> NoteStore:
     """Select a note store backend based on the path extension.
 
     Paths ending in ``.db``/``.sqlite``/``.sqlite3`` become a SQLite-backed
-    store; anything else uses the original JSONL notebook.
+    store; anything else uses the original JSONL notebook. ``weighting`` tunes
+    recency/importance-aware recall (inactive by default).
     """
     p = Path(path)
     if p.suffix.lower() in (".db", ".sqlite", ".sqlite3"):
-        return SqliteNoteStore(p)
-    return JsonlNoteStore(p)
+        return SqliteNoteStore(p, weighting=weighting)
+    return JsonlNoteStore(p, weighting=weighting)
 
 
 def make_memory_tools(notes: NoteStore, store: MemoryStore | None = None) -> list:
@@ -938,9 +1021,10 @@ class SqliteNoteStore:
     builds without FTS5 fall back to substring search.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, weighting: RecallWeighting | None = None) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._weighting = weighting or RecallWeighting()
         self._conn: sqlite3.Connection | None = None
         self._fts_enabled: bool | None = None
         self._ensure_schema()
@@ -1068,7 +1152,10 @@ class SqliteNoteStore:
         notes = [self._row_to_note(r) for r in rows]
         for note in notes:
             self._touch(note)
-        return notes
+        # Rows arrive in relevance order (FTS rank / recency); give them
+        # decreasing positional base scores so the weighting can re-rank them.
+        pairs = [(float(len(notes) - i), note) for i, note in enumerate(notes)]
+        return self._weighting.rerank(pairs, limit=limit)
 
     def forget(
         self, *, note_id: int | None = None, text_prefix: str | None = None

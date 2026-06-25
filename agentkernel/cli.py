@@ -35,6 +35,7 @@ from agentkernel.mcp.config import MCPServerConfig
 from agentkernel.memory import (
     MemoryStore,
     NoteStore,
+    RecallWeighting,
     make_memory_store,
     make_memory_tools,
     make_note_store,
@@ -64,6 +65,11 @@ def _make_configured_note_store(config: Config) -> NoteStore:
     Shared by build_runtime (memory tools) and run_memory (curation), so the
     notebook backend is selected identically in both.
     """
+    weighting = RecallWeighting(
+        recency_weight=config.memory_recency_weight,
+        importance_weight=config.memory_importance_weight,
+        half_life_days=config.memory_half_life_days,
+    )
     if config.semantic_search:
         try:
             emb_provider = OpenAIEmbeddingProvider.from_config(config)
@@ -74,10 +80,11 @@ def _make_configured_note_store(config: Config) -> NoteStore:
                 notes_path,
                 embedding_provider=emb_provider,
                 lsh_bits=config.semantic_search_lsh_bits,
+                weighting=weighting,
             )
         except EmbeddingError as exc:
             print(f"Warning: semantic search disabled: {exc}", file=sys.stderr)
-    return make_note_store(config.memory_notes_path)
+    return make_note_store(config.memory_notes_path, weighting=weighting)
 
 
 def build_runtime(

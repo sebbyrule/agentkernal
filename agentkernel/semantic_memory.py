@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from agentkernel.embeddings import EmbeddingProvider, cosine_similarity
-from agentkernel.memory import MemoryNote, SqliteNoteStore
+from agentkernel.memory import MemoryNote, RecallWeighting, SqliteNoteStore
 from agentkernel.semantic_index import LSHIndex
 
 
@@ -34,12 +34,13 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
         *,
         embedding_provider: EmbeddingProvider,
         lsh_bits: int | None = None,
+        weighting: RecallWeighting | None = None,
     ) -> None:
         self._embedding_provider = embedding_provider
         self._lsh_bits = lsh_bits
         self._lsh_index: LSHIndex | None = None
         # Parent creates the notes table and optional FTS5 index.
-        super().__init__(path)
+        super().__init__(path, weighting=weighting)
         self._ensure_embedding_schema()
 
     def _ensure_embedding_schema(self) -> None:
@@ -151,7 +152,8 @@ class SemanticSqliteNoteStore(SqliteNoteStore):
 
         # Highest similarity first; tie-break by note_id for stability.
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        ranked = [note for _, _, note in scored[:limit]]
+        pairs = [(similarity, note) for similarity, _nid, note in scored]
+        ranked = self._weighting.rerank(pairs, limit=limit)
         for note in ranked:
             self._touch(note)
         return ranked
